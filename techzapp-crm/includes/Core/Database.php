@@ -67,12 +67,28 @@ final class Database
         return self::wpdb()->prefix . self::TABLE_PREFIX . $name;
     }
 
-    /** Expands every {table} token in a statement. */
+    /**
+     * Expands every {table} token in a statement.
+     *
+     * {contacts} and friends are this plugin's own tables. A handful of
+     * WordPress tables are also addressable — {wp_users} resolves to
+     * $wpdb->users rather than a guessed name, so an install that relocates
+     * the user table with CUSTOM_USER_TABLE still works.
+     */
     public static function expandTables(string $sql): string
     {
         return (string) preg_replace_callback(
             '/\{([a-z_][a-z0-9_]*)\}/',
-            static fn (array $m): string => self::table($m[1]),
+            static function (array $m): string {
+                $wpdb = self::wpdb();
+
+                return match ($m[1]) {
+                    'wp_users'    => $wpdb->users,
+                    'wp_usermeta' => $wpdb->usermeta,
+                    'wp_options'  => $wpdb->options,
+                    default       => self::table($m[1]),
+                };
+            },
             $sql
         );
     }

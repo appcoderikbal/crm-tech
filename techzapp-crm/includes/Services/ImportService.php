@@ -671,9 +671,9 @@ final class ImportService
 
         $total = (int) Database::scalar('SELECT COUNT(*) FROM {import_jobs}');
         $rows = Database::all(
-            "SELECT j.*, u.email AS created_by_email, l.name AS target_list_name
+            "SELECT j.*, u.user_email AS created_by_email, l.name AS target_list_name
                FROM {import_jobs} j
-          LEFT JOIN users u ON u.id = j.created_by
+          LEFT JOIN {wp_users} u ON u.ID = j.created_by
           LEFT JOIN {lists} l ON l.id = j.target_list_id
            ORDER BY j.id DESC
               LIMIT {$perPage} OFFSET {$offset}"

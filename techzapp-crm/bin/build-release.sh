@@ -103,37 +103,12 @@ echo "==> Verifying the bundle still loads"
 echo "==> Creating ZIP"
 if command -v zip >/dev/null 2>&1; then
   ( cd "${BUILD_DIR}" && zip -rq techzapp-crm.zip techzapp-crm )
+  echo "    packed with zip"
 else
-  # No zip binary (common on Windows). PHP's ZipArchive is always available
-  # here, since the plugin already requires the zip-capable PHP build.
-  ( cd "${BUILD_DIR}" && php -r '
-    $zip = new ZipArchive();
-    if ($zip->open("techzapp-crm.zip", ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
-        fwrite(STDERR, "Could not create the archive." . PHP_EOL);
-        exit(1);
-    }
-
-    $base = realpath("techzapp-crm");
-    $files = new RecursiveIteratorIterator(
-        new RecursiveDirectoryIterator($base, FilesystemIterator::SKIP_DOTS),
-        RecursiveIteratorIterator::SELF_FIRST
-    );
-
-    foreach ($files as $file) {
-        $path = $file->getPathname();
-        $relative = "techzapp-crm/" . str_replace("\\\\", "/", substr($path, strlen($base) + 1));
-
-        if ($file->isDir()) {
-            $zip->addEmptyDir($relative);
-        } else {
-            $zip->addFile($path, $relative);
-        }
-    }
-
-    $count = $zip->numFiles;
-    $zip->close();
-    echo "    " . $count . " entries archived" . PHP_EOL;
-  ' )
+  # No zip binary (normal on Windows). The helper also verifies the entry
+  # paths, because an archive built here can look fine locally and still be
+  # unusable on a Linux server.
+  php "${PLUGIN_DIR}/bin/make-zip.php" "${STAGE}" "${BUILD_DIR}/techzapp-crm.zip"
 fi
 
 echo

@@ -160,9 +160,9 @@ final class SuppressionService
     public static function history(string $email, int $limit = 50): array
     {
         return Database::all(
-            'SELECT se.id, se.action, se.reason, se.source, se.notes, se.created_at, u.email AS actor_email
+            'SELECT se.id, se.action, se.reason, se.source, se.notes, se.created_at, u.user_email AS actor_email
                FROM {suppression_events} se
-          LEFT JOIN users u ON u.id = se.actor_user_id
+          LEFT JOIN {wp_users} u ON u.ID = se.actor_user_id
               WHERE se.normalized_email = :email
            ORDER BY se.created_at DESC, se.id DESC
               LIMIT ' . max(1, min(200, $limit)),
