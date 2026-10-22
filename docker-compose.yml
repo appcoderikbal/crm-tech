@@ -1,73 +1,89 @@
-# Local development database only.
+# Local WordPress for developing and testing the plugin.
 #
-# Production runs on Hostinger's managed MySQL — see docs/DEPLOYMENT.md. This
-# file exists so a developer gets the same MySQL 8.4 the test suite was written
-# against, without installing a server.
+# The plugin directory is bind-mounted into wp-content/plugins, so edits on the
+# host appear immediately inside WordPress — no rebuild, no copying.
 #
-#   docker compose up -d          start
-#   docker compose logs -f mysql  watch startup
-#   docker compose down           stop (data is kept in the named volume)
-#   docker compose down -v        stop and delete the data
+#   docker compose up -d
+#   open http://localhost:8080   (complete the 2-minute WP install)
+#   then activate "Techzapp CRM" under Plugins
+#
+# Production is Hostinger shared hosting with a normal WordPress install; none
+# of this ships with the plugin.
 
 services:
+  wordpress:
+    image: wordpress:6.8-php8.3-apache
+    container_name: techzapp-wp
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports:
+      - '8080:80'
+    environment:
+      WORDPRESS_DB_HOST: mysql:3306
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress
+      # Real cron drives the sending pipeline; WP-Cron is disabled so the
+      # behaviour matches the recommended production setup.
+      WORDPRESS_DEBUG: '1'
+      WORDPRESS_CONFIG_EXTRA: |
+        /* The image already defines WP_DEBUG when WORDPRESS_DEBUG is set. */
+        if ( ! defined( 'WP_DEBUG_LOG' ) )     { define( 'WP_DEBUG_LOG', true ); }
+        if ( ! defined( 'WP_DEBUG_DISPLAY' ) ) { define( 'WP_DEBUG_DISPLAY', false ); }
+        if ( ! defined( 'DISABLE_WP_CRON' ) )  { define( 'DISABLE_WP_CRON', true ); }
+        if ( ! defined( 'TECHZAPP_CRM_MAIL_TRANSPORT' ) ) { define( 'TECHZAPP_CRM_MAIL_TRANSPORT', 'log' ); }
+    volumes:
+      - wp-data:/var/www/html
+      - ./techzapp-crm:/var/www/html/wp-content/plugins/techzapp-crm
+
   mysql:
     image: mysql:8.4
-    container_name: techzapp-crm-mysql
+    container_name: techzapp-wp-mysql
     restart: unless-stopped
     command:
-      # The application stores and compares every timestamp in UTC.
       - --default-time-zone=+00:00
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
-      # Matches the shared-hosting profile the app is written for, so local
-      # development hits the same limits as production rather than a roomier box.
-      - --max-connections=50
-      - --innodb-buffer-pool-size=256M
     environment:
-      # Local credentials only. Real secrets live in backend/config/config.php,
-      # which is git-ignored and never committed.
-      MYSQL_ROOT_PASSWORD: techzapp_root
-      MYSQL_DATABASE: techzapp_crm
-      MYSQL_USER: techzapp
-      MYSQL_PASSWORD: techzapp_dev
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wordpress
+      MYSQL_PASSWORD: wordpress
     ports:
       - '3306:3306'
     volumes:
       - mysql-data:/var/lib/mysql
     healthcheck:
-      # Wait for real query readiness, not just an open port — migrations run
-      # immediately after this reports healthy.
-      test: ['CMD', 'mysqladmin', 'ping', '-h', '127.0.0.1', '-u', 'root', '-ptechzapp_root']
+      test: ['CMD', 'mysqladmin', 'ping', '-h', '127.0.0.1', '-u', 'root', '-proot']
       interval: 5s
       timeout: 5s
       retries: 20
       start_period: 30s
 
-  # Second database for the integration test suite, which TRUNCATEs every table.
-  # Keeping it separate means running the tests never wipes your dev data.
-  mysql-test:
-    image: mysql:8.4
-    container_name: techzapp-crm-mysql-test
-    restart: unless-stopped
-    command:
-      - --default-time-zone=+00:00
-      - --character-set-server=utf8mb4
-      - --collation-server=utf8mb4_unicode_ci
+  # WP-CLI for migrations, test fixtures and running the cron workers by hand.
+  #   docker compose run --rm wpcli wp plugin activate techzapp-crm
+  wpcli:
+    image: wordpress:cli-php8.3
+    container_name: techzapp-wp-cli
+    depends_on:
+      mysql:
+        condition: service_healthy
+      wordpress:
+        condition: service_started
+    user: '33:33'
     environment:
-      MYSQL_ROOT_PASSWORD: techzapp_root
-      MYSQL_DATABASE: techzapp_crm_test
-    ports:
-      - '3307:3306'
-    tmpfs:
-      # Test data is disposable; keeping it in RAM makes the suite noticeably
-      # faster and leaves nothing behind.
-      - /var/lib/mysql
-    healthcheck:
-      test: ['CMD', 'mysqladmin', 'ping', '-h', '127.0.0.1', '-u', 'root', '-ptechzapp_root']
-      interval: 5s
-      timeout: 5s
-      retries: 20
-      start_period: 30s
+      WORDPRESS_DB_HOST: mysql:3306
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress
+    volumes:
+      - wp-data:/var/www/html
+      - ./techzapp-crm:/var/www/html/wp-content/plugins/techzapp-crm
+    entrypoint: ['wp']
+    command: ['--info']
 
 volumes:
+  wp-data:
   mysql-data:

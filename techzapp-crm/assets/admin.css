@@ -1,0 +1,162 @@
+/* Techzapp CRM admin styles. Extends core wp-admin rather than replacing it. */
+
+.techzapp-crm .techzapp-section {
+  margin: 24px 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: #646970;
+}
+
+/* ---------------------------------------------------------------- tiles */
+.techzapp-tiles {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  margin-bottom: 8px;
+}
+.techzapp-tile {
+  display: block;
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid #c3c4c7;
+  border-radius: 4px;
+  text-decoration: none;
+  color: inherit;
+}
+a.techzapp-tile:hover { border-color: #2271b1; }
+.techzapp-tile__label {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  color: #646970;
+}
+.techzapp-tile__value {
+  display: block;
+  margin-top: 4px;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+.techzapp-tile__hint { display: block; font-size: 12px; color: #646970; }
+
+.tone-ok { color: #007017; }
+.tone-warn { color: #8a6100; }
+.tone-danger { color: #b32d2e; }
+.tone-brand { color: #2271b1; }
+.tone-neutral { color: #1d2327; }
+
+/* ---------------------------------------------------------------- cards */
+.techzapp-card {
+  background: #fff;
+  border: 1px solid #c3c4c7;
+  border-radius: 4px;
+  margin: 16px 0;
+}
+.techzapp-card__head {
+  padding: 12px 16px;
+  border-bottom: 1px solid #dcdcde;
+}
+.techzapp-card__head h2 { margin: 0; font-size: 14px; }
+.techzapp-card__head .description { margin: 4px 0 0; }
+.techzapp-card__body { padding: 12px 16px; }
+.techzapp-card__body > table.form-table { margin-top: 0; }
+
+.techzapp-columns { display: flex; flex-wrap: wrap; gap: 16px; }
+.techzapp-column { flex: 1 1 280px; min-width: 0; }
+.techzapp-column--wide { flex: 2 1 420px; }
+
+/* --------------------------------------------------------------- badges */
+.techzapp-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  white-space: nowrap;
+  background: #f0f0f1;
+  color: #50575e;
+}
+.techzapp-badge.tone-ok { background: #edfaef; color: #007017; }
+.techzapp-badge.tone-warn { background: #fcf9e8; color: #8a6100; }
+.techzapp-badge.tone-danger { background: #fcf0f1; color: #b32d2e; }
+.techzapp-badge.tone-brand { background: #eef5fb; color: #2271b1; }
+.techzapp-badge.tone-outline { background: transparent; border: 1px solid #c3c4c7; }
+
+.techzapp-dot {
+  display: inline-block;
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: #a7aaad;
+  flex: 0 0 auto;
+}
+.techzapp-dot.status-green { background: #00a32a; }
+.techzapp-dot.status-amber { background: #dba617; }
+.techzapp-dot.status-red { background: #d63638; }
+.techzapp-dot.status-unknown { background: #a7aaad; }
+
+/* --------------------------------------------------------------- health */
+.techzapp-health { margin: 0; }
+.techzapp-health li {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 6px 0;
+  border-bottom: 1px solid #f0f0f1;
+  margin: 0;
+}
+.techzapp-health li:last-child { border-bottom: 0; }
+.techzapp-health .techzapp-dot { margin-top: 5px; }
+.techzapp-health strong { display: block; }
+.techzapp-health .description { font-size: 12px; }
+
+/* ---------------------------------------------------------------- misc */
+.techzapp-crm table.wp-list-table .num,
+.techzapp-crm td.num, .techzapp-crm th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.techzapp-range { margin: 12px 0; }
+.techzapp-bulk-assign {
+  margin: 8px 0;
+  padding: 8px 12px;
+  background: #f6f7f7;
+  border: 1px solid #dcdcde;
+  border-radius: 4px;
+}
+.techzapp-url { word-break: break-all; }
+.techzapp-notice-list { margin: 6px 0 6px 18px; list-style: disc; }
+.techzapp-debug {
+  max-height: 320px;
+  overflow: auto;
+  background: #f6f7f7;
+  padding: 10px;
+  border: 1px solid #dcdcde;
+  font-size: 12px;
+}
+.techzapp-killswitch { margin-top: 8px; }
+
+/* ------------------------------------------------------------- progress */
+.techzapp-progress {
+  height: 18px;
+  background: #f0f0f1;
+  border-radius: 9px;
+  overflow: hidden;
+  margin: 8px 0;
+}
+.techzapp-progress__bar {
+  height: 100%;
+  background: #2271b1;
+  transition: width .3s ease;
+}
+.techzapp-progress__bar.is-done { background: #00a32a; }
+
+@media screen and (max-width: 782px) {
+  .techzapp-tiles { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+  .techzapp-columns { display: block; }
+  .techzapp-column { margin-bottom: 16px; }
+}

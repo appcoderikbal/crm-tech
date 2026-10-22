@@ -1,0 +1,699 @@
+<?php
+
+declare(strict_types=1);
+
+namespace TechzappCrm\Admin\Screens;
+
+use TechzappCrm\Admin\Menu;
+use TechzappCrm\Admin\View;
+use TechzappCrm\Core\Audit;
+use TechzappCrm\Core\Capabilities;
+use TechzappCrm\Core\Config;
+use TechzappCrm\Core\CrmException;
+use TechzappCrm\Core\Cron;
+use TechzappCrm\Core\Database;
+use TechzappCrm\Core\Jobs;
+use TechzappCrm\Core\Runner;
+use TechzappCrm\Core\Settings;
+use TechzappCrm\Core\Storage;
+use TechzappCrm\Rest\Routes;
+use TechzappCrm\Services\AlertService;
+use TechzappCrm\Services\Mail\Mailer;
+
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+/** Settings, the kill switch, provider configuration and worker status. */
+final class SettingsScreen extends Screen
+{
+    public function render(): void
+    {
+        $settings = Settings::all();
+        $canEdit = Capabilities::canManageSettings();
+
+        View::open(__('Techzapp CRM settings', 'techzapp-crm'));
+
+        if (!$canEdit) {
+            View::notice(__('Only administrators can change these settings.', 'techzapp-crm'), 'info');
+        }
+
+        $this->killSwitchCard($canEdit);
+
+        echo '<form method="post">';
+        View::formFields('techzapp-crm-settings', 'save', 'techzapp_crm_settings');
+
+        $this->sendingCard($settings, $canEdit);
+        $this->thresholdsCard($settings, $canEdit);
+        $this->providerCard($settings, $canEdit);
+        $this->campaignDefaultsCard($settings, $canEdit);
+
+        if ($canEdit) {
+            submit_button(__('Save settings', 'techzapp-crm'));
+        }
+
+        echo '</form>';
+
+        $this->endpointsCard();
+        $this->workersCard($canEdit);
+        $this->environmentCard();
+
+        View::close();
+    }
+
+    // ------------------------------------------------------------- rendering
+
+    private function killSwitchCard(bool $canEdit): void
+    {
+        $engaged = Settings::bool('kill_switch_engaged');
+
+        View::cardOpen(
+            __('Global sending kill switch', 'techzapp-crm'),
+            __('Stops the background worker from sending anything, immediately.', 'techzapp-crm')
+        );
+
+        if ($engaged) {
+            View::notice(
+                sprintf(
+                    '<strong>%s</strong> %s',
+                    esc_html__('Sending is stopped.', 'techzapp-crm'),
+                    esc_html(Settings::string('kill_switch_reason', __('No reason recorded.', 'techzapp-crm')))
+                ),
+                'error'
+            );
+        } else {
+            View::notice(__('Sending is enabled. Campaigns send according to their schedules.', 'techzapp-crm'), 'success');
+        }
+
+        if ($canEdit) {
+            echo '<form method="post" class="techzapp-killswitch">';
+            View::formFields('techzapp-crm-settings', 'kill_switch', 'techzapp_crm_kill_switch');
+            printf('<input type="hidden" name="engage" value="%s">', $engaged ? '0' : '1');
+
+            if (!$engaged) {
+                echo '<p><label for="kill_reason">' . esc_html__('Why are you stopping sending?', 'techzapp-crm') . '</label><br>';
+                echo '<input type="text" id="kill_reason" name="reason" class="regular-text" required '
+                    . 'placeholder="' . esc_attr__('Recorded in the audit log and shown on the dashboard', 'techzapp-crm') . '"></p>';
+                submit_button(__('Stop all sending', 'techzapp-crm'), 'delete', 'submit', false);
+            } else {
+                submit_button(__('Resume sending', 'techzapp-crm'), 'primary', 'submit', false);
+            }
+
+            echo '</form>';
+        }
+
+        View::cardClose();
+    }
+
+    private function sendingCard(array $settings, bool $canEdit): void
+    {
+        View::cardOpen(
+            __('Sending limits', 'techzapp-crm'),
+            __('Hard caps the worker respects, whatever an individual campaign asks for.', 'techzapp-crm')
+        );
+
+        echo '<table class="form-table" role="presentation"><tbody>';
+
+        $this->checkboxRow('sending_enabled', __('Sending enabled', 'techzapp-crm'), (bool) $settings['sending_enabled'], $canEdit,
+            __('A softer control than the kill switch; both must be on for anything to send.', 'techzapp-crm'));
+
+        $this->numberRow('max_send_rate_per_minute', __('Max messages per minute', 'techzapp-crm'), (int) $settings['max_send_rate_per_minute'], $canEdit,
+            __('Account-wide ceiling. Must not exceed your SES send rate.', 'techzapp-crm'), 1);
+
+        $this->numberRow('max_sends_per_day', __('Max messages per day', 'techzapp-crm'), (int) $settings['max_sends_per_day'], $canEdit,
+            __('0 disables the daily cap.', 'techzapp-crm'), 0);
+
+        $this->numberRow('max_sends_per_cron_run', __('Max messages per worker run', 'techzapp-crm'), (int) $settings['max_sends_per_cron_run'], $canEdit,
+            __('Keeps each run inside the host\'s time limit.', 'techzapp-crm'), 1);
+
+        $this->numberRow('recipient_build_batch', __('Recipient build batch', 'techzapp-crm'), (int) $settings['recipient_build_batch'], $canEdit,
+            __('Rows inserted per queue-building pass.', 'techzapp-crm'), 100);
+
+        $this->numberRow('soft_bounce_max_attempts', __('Retry attempts', 'techzapp-crm'), (int) $settings['soft_bounce_max_attempts'], $canEdit,
+            __('Transient failures before a recipient is marked failed.', 'techzapp-crm'), 1, 10);
+
+        echo '</tbody></table>';
+        View::cardClose();
+    }
+
+    private function thresholdsCard(array $settings, bool $canEdit): void
+    {
+        View::cardOpen(
+            __('Deliverability thresholds', 'techzapp-crm'),
+            __('Alert levels for this plugin — not guaranteed-safe limits for your SES account.', 'techzapp-crm')
+        );
+
+        echo '<table class="form-table" role="presentation"><tbody>';
+
+        $this->numberRow('bounce_rate_warning_pct', __('Bounce warning %', 'techzapp-crm'), (float) $settings['bounce_rate_warning_pct'], $canEdit, '', 0, null, '0.01');
+        $this->numberRow('bounce_rate_critical_pct', __('Bounce critical %', 'techzapp-crm'), (float) $settings['bounce_rate_critical_pct'], $canEdit, '', 0, null, '0.01');
+        $this->numberRow('complaint_rate_warning_pct', __('Complaint warning %', 'techzapp-crm'), (float) $settings['complaint_rate_warning_pct'], $canEdit, '', 0, null, '0.001');
+        $this->numberRow('complaint_rate_critical_pct', __('Complaint critical %', 'techzapp-crm'), (float) $settings['complaint_rate_critical_pct'], $canEdit, '', 0, null, '0.001');
+
+        $this->checkboxRow(
+            'complaint_spike_auto_pause',
+            __('Pause automatically on a complaint spike', 'techzapp-crm'),
+            (bool) $settings['complaint_spike_auto_pause'],
+            $canEdit,
+            __('Engages the kill switch as soon as the complaint WARNING level is reached, not the critical one. A delayed campaign is cheap; a damaged sending domain is not.', 'techzapp-crm')
+        );
+
+        $this->numberRow('alert_rolling_window_hours', __('Rolling window (hours)', 'techzapp-crm'), (int) $settings['alert_rolling_window_hours'], $canEdit, '', 1);
+        $this->numberRow('alert_min_sample_size', __('Minimum sample size', 'techzapp-crm'), (int) $settings['alert_min_sample_size'], $canEdit,
+            __('Below this many attempted recipients the status is reported as "unknown" rather than healthy.', 'techzapp-crm'), 1);
+        $this->numberRow('cron_stale_minutes', __('Worker stale after (minutes)', 'techzapp-crm'), (int) $settings['cron_stale_minutes'], $canEdit, '', 5);
+        $this->numberRow('campaign_overdue_minutes', __('Campaign overdue after (minutes)', 'techzapp-crm'), (int) $settings['campaign_overdue_minutes'], $canEdit,
+            __('Raise this above your cron interval, or healthy campaigns are flagged as overdue.', 'techzapp-crm'), 1);
+
+        echo '</tbody></table>';
+        View::cardClose();
+    }
+
+    private function providerCard(array $settings, bool $canEdit): void
+    {
+        $source = Config::credentialSource();
+
+        View::cardOpen(
+            __('Amazon SES', 'techzapp-crm'),
+            __('Credentials belong in wp-config.php. Values stored here are readable by anything with database access.', 'techzapp-crm')
+        );
+
+        if ($source === 'database') {
+            View::notice(
+                __('SES credentials are currently stored in the database. For production, move them to wp-config.php using the constants shown below.', 'techzapp-crm'),
+                'warning'
+            );
+        } elseif ($source === 'none' && Config::mailTransport() === 'ses') {
+            View::notice(__('No SES credentials are configured, so nothing can be sent.', 'techzapp-crm'), 'error');
+        }
+
+        echo '<table class="form-table" role="presentation"><tbody>';
+
+        echo '<tr><th scope="row">' . esc_html__('Credential source', 'techzapp-crm') . '</th><td>';
+        echo esc_html(match ($source) {
+            'constant'    => __('wp-config.php constant (recommended)', 'techzapp-crm'),
+            'environment' => __('Environment variable', 'techzapp-crm'),
+            'database'    => __('Stored in this screen', 'techzapp-crm'),
+            default       => __('Not configured', 'techzapp-crm'),
+        });
+        echo '<p class="description"><code>define( \'TECHZAPP_CRM_AWS_ACCESS_KEY_ID\', \'…\' );</code><br>'
+            . '<code>define( \'TECHZAPP_CRM_AWS_SECRET_ACCESS_KEY\', \'…\' );</code></p>';
+        echo '</td></tr>';
+
+        $this->selectRow('mail_transport', __('Transport', 'techzapp-crm'), (string) $settings['mail_transport'], [
+            'ses' => __('Amazon SES (real delivery)', 'techzapp-crm'),
+            'log' => __('Log only (writes to the plugin log, sends nothing)', 'techzapp-crm'),
+        ], $canEdit);
+
+        $this->textRow('ses_region', __('Region', 'techzapp-crm'), (string) $settings['ses_region'], $canEdit, 'us-east-1');
+        $this->textRow('ses_configuration_set', __('Configuration set', 'techzapp-crm'), (string) $settings['ses_configuration_set'], $canEdit,
+            '', __('Required for delivery, bounce and complaint events.', 'techzapp-crm'));
+
+        $this->textareaRow(
+            'ses_verified_identities',
+            __('Verified sender identities', 'techzapp-crm'),
+            implode("\n", array_map('strval', (array) $settings['ses_verified_identities'])),
+            $canEdit,
+            __('One address or domain per line. A campaign whose From address is not listed here refuses to send.', 'techzapp-crm')
+        );
+
+        if ($source !== 'constant' && $source !== 'environment') {
+            $this->textRow('ses_access_key_id', __('Access key id', 'techzapp-crm'), (string) $settings['ses_access_key_id'], $canEdit);
+
+            echo '<tr><th scope="row"><label for="ses_secret_access_key">' . esc_html__('Secret access key', 'techzapp-crm') . '</label></th><td>';
+            printf(
+                '<input type="password" id="ses_secret_access_key" name="ses_secret_access_key" class="regular-text" autocomplete="new-password" placeholder="%s"%s>',
+                Settings::string('ses_secret_access_key') !== '' ? esc_attr__('(stored — leave blank to keep)', 'techzapp-crm') : '',
+                $canEdit ? '' : ' disabled'
+            );
+            echo '<p class="description">' . esc_html__('Never displayed back. Leave blank to keep the stored value.', 'techzapp-crm') . '</p>';
+            echo '</td></tr>';
+        }
+
+        $this->textareaRow(
+            'sns_allowed_topic_arns',
+            __('Allowed SNS topic ARNs', 'techzapp-crm'),
+            implode("\n", array_map('strval', (array) $settings['sns_allowed_topic_arns'])),
+            $canEdit,
+            __('One per line. Notifications from any other topic are rejected. Leave empty to accept any topic (not recommended).', 'techzapp-crm')
+        );
+
+        $this->checkboxRow('sns_verify_signature', __('Verify SNS signatures', 'techzapp-crm'), (bool) $settings['sns_verify_signature'], $canEdit,
+            __('Leave on. Turn off only when replaying captured payloads in a test environment.', 'techzapp-crm'));
+
+        echo '</tbody></table>';
+
+        $account = AlertService::providerSnapshot();
+        if ($account !== null) {
+            echo '<p><strong>' . esc_html__('Account status', 'techzapp-crm') . ':</strong> ';
+            echo esc_html(sprintf(
+                /* translators: 1: enabled/disabled, 2: enforcement status, 3: sent, 4: quota */
+                __('sending %1$s, enforcement %2$s, %3$s of %4$s used in the last 24 hours.', 'techzapp-crm'),
+                $account['sending_enabled'] ? __('enabled', 'techzapp-crm') : __('disabled', 'techzapp-crm'),
+                $account['enforcement_status'],
+                View::number((int) $account['sent_last_24_hours']),
+                View::number((int) $account['max_24_hour'])
+            ));
+            echo '</p>';
+        }
+
+        View::cardClose();
+    }
+
+    private function campaignDefaultsCard(array $settings, bool $canEdit): void
+    {
+        View::cardOpen(__('Campaign defaults', 'techzapp-crm'));
+
+        echo '<table class="form-table" role="presentation"><tbody>';
+
+        $this->textRow('default_timezone', __('Default timezone', 'techzapp-crm'), (string) $settings['default_timezone'], $canEdit,
+            wp_timezone_string(), __('Leave blank to use the site timezone.', 'techzapp-crm'));
+
+        $this->textRow('tracking_base_url', __('Tracking base URL', 'techzapp-crm'), (string) $settings['tracking_base_url'], $canEdit,
+            home_url(), __('Leave blank to use the site URL.', 'techzapp-crm'));
+
+        $this->textareaRow('company_postal_address', __('Company postal address', 'techzapp-crm'), (string) $settings['company_postal_address'], $canEdit,
+            __('Added to the unsubscribe footer. Required by CAN-SPAM and similar laws.', 'techzapp-crm'));
+
+        $this->textareaRow(
+            'test_send_allowed_domains',
+            __('Test send allowed domains', 'techzapp-crm'),
+            implode("\n", array_map('strval', (array) $settings['test_send_allowed_domains'])),
+            $canEdit,
+            __('One per line. Test messages may always go to your own address or another CRM user.', 'techzapp-crm')
+        );
+
+        $this->numberRow('import_retention_hours', __('Import file retention (hours)', 'techzapp-crm'), (int) $settings['import_retention_hours'], $canEdit, '', 1);
+        $this->numberRow('import_max_file_mb', __('Max import file size (MB)', 'techzapp-crm'), (int) $settings['import_max_file_mb'], $canEdit,
+            sprintf(
+                /* translators: %s: PHP upload_max_filesize */
+                __('PHP on this server accepts at most %s.', 'techzapp-crm'),
+                (string) ini_get('upload_max_filesize')
+            ),
+            1
+        );
+        $this->numberRow('import_batch_rows', __('Import batch rows', 'techzapp-crm'), (int) $settings['import_batch_rows'], $canEdit, '', 50);
+
+        echo '</tbody></table>';
+        View::cardClose();
+    }
+
+    private function endpointsCard(): void
+    {
+        View::cardOpen(
+            __('Endpoints to configure in AWS', 'techzapp-crm'),
+            __('Point your SES configuration set at the SNS topic, and the topic at this webhook.', 'techzapp-crm')
+        );
+
+        echo '<table class="widefat striped"><tbody>';
+        foreach ([
+            __('SNS webhook', 'techzapp-crm')   => Routes::webhookUrl(),
+            __('Open pixel', 'techzapp-crm')    => Routes::trackingUrl('/t/o'),
+            __('Click redirect', 'techzapp-crm') => Routes::trackingUrl('/t/c'),
+            __('Unsubscribe', 'techzapp-crm')   => Routes::trackingUrl('/u'),
+        ] as $label => $url) {
+            printf(
+                '<tr><th scope="row">%s</th><td><code class="techzapp-url">%s</code></td></tr>',
+                esc_html($label),
+                esc_html($url)
+            );
+        }
+        echo '</tbody></table>';
+
+        if (Config::usingSaltDerivedSecret()) {
+            echo '<p class="description">'
+                . esc_html__('Tracking links are signed with a WordPress salt. Changing the salts in wp-config.php will invalidate unsubscribe links in email already delivered. Define TECHZAPP_CRM_SECRET to decouple them.', 'techzapp-crm')
+                . '</p>';
+        }
+
+        View::cardClose();
+    }
+
+    private function workersCard(bool $canEdit): void
+    {
+        View::cardOpen(
+            __('Background workers', 'techzapp-crm'),
+            __('Each job reports in after every run. Scheduled campaigns do not send without them.', 'techzapp-crm')
+        );
+
+        if (Cron::wpCronDisabled()) {
+            View::notice(
+                __('WP-Cron is disabled on this site, so a real system cron must be calling WP-CLI. See the plugin documentation for the exact command.', 'techzapp-crm'),
+                'info'
+            );
+        } else {
+            View::notice(
+                __('WP-Cron is in use. It only runs when someone visits the site, so a quiet site sends late. For anything beyond small volumes, disable WP-Cron and use a real system cron.', 'techzapp-crm'),
+                'info'
+            );
+        }
+
+        $heartbeats = [];
+        foreach (Database::all('SELECT job_name, last_run_at, last_status, last_message, duration_ms, run_count FROM {cron_heartbeats}') as $row) {
+            $heartbeats[(string) $row['job_name']] = $row;
+        }
+
+        $next = Cron::nextRuns();
+
+        echo '<table class="wp-list-table widefat striped"><thead><tr>';
+        echo '<th>' . esc_html__('Job', 'techzapp-crm') . '</th>';
+        echo '<th>' . esc_html__('Last run', 'techzapp-crm') . '</th>';
+        echo '<th>' . esc_html__('Status', 'techzapp-crm') . '</th>';
+        echo '<th>' . esc_html__('Next run', 'techzapp-crm') . '</th>';
+        echo '<th class="num">' . esc_html__('Runs', 'techzapp-crm') . '</th>';
+        if ($canEdit) {
+            echo '<th></th>';
+        }
+        echo '</tr></thead><tbody>';
+
+        foreach (array_keys(Cron::JOBS) as $job) {
+            $beat = $heartbeats[$job] ?? null;
+            $status = $beat === null ? 'unknown' : ((string) $beat['last_status'] === 'ok' ? 'green' : 'red');
+
+            echo '<tr>';
+            printf('<td><code>%s</code></td>', esc_html($job));
+            printf(
+                '<td>%s</td>',
+                $beat === null
+                    ? '<span class="description">' . esc_html__('never', 'techzapp-crm') . '</span>'
+                    : esc_html(View::relative((string) $beat['last_run_at']))
+            );
+            printf(
+                '<td>%s %s</td>',
+                View::statusDot($status),
+                esc_html($beat === null ? __('no data', 'techzapp-crm') : (string) $beat['last_status'])
+            );
+            printf(
+                '<td>%s</td>',
+                ($next[$job] ?? false) === false
+                    ? '<span class="description">' . esc_html__('not scheduled', 'techzapp-crm') . '</span>'
+                    : esc_html(View::relative(gmdate('Y-m-d H:i:s', (int) $next[$job])))
+            );
+            printf('<td class="num">%s</td>', esc_html(View::number($beat === null ? 0 : (int) $beat['run_count'])));
+
+            if ($canEdit) {
+                printf(
+                    '<td><a class="button button-small" href="%s">%s</a></td>',
+                    esc_url(View::actionUrl('techzapp-crm-settings', 'run_job', 'techzapp_crm_run_job', ['job' => $job])),
+                    esc_html__('Run now', 'techzapp-crm')
+                );
+            }
+
+            echo '</tr>';
+        }
+
+        echo '</tbody></table>';
+        View::cardClose();
+    }
+
+    private function environmentCard(): void
+    {
+        View::cardOpen(__('Hosting environment', 'techzapp-crm'));
+
+        echo '<table class="widefat striped"><tbody>';
+        foreach ([
+            __('PHP', 'techzapp-crm')               => PHP_VERSION,
+            __('MySQL', 'techzapp-crm')             => (string) Database::scalar('SELECT VERSION()'),
+            __('Memory limit', 'techzapp-crm')      => (string) ini_get('memory_limit'),
+            __('Max execution time', 'techzapp-crm') => (string) ini_get('max_execution_time') . 's',
+            __('Max upload size', 'techzapp-crm')   => (string) ini_get('upload_max_filesize'),
+            __('Worker time budget', 'techzapp-crm') => Config::maxRuntimeSeconds() . 's',
+            __('Mail transport', 'techzapp-crm')    => Mailer::transport()->name(),
+        ] as $label => $value) {
+            printf('<tr><th scope="row">%s</th><td>%s</td></tr>', esc_html($label), esc_html($value));
+        }
+        echo '</tbody></table>';
+
+        if (!Storage::htaccessLikelyHonoured()) {
+            View::notice(
+                __('This server does not appear to be Apache or LiteSpeed, so the .htaccess protecting uploaded import files may be ignored. The files use unguessable names, but consider adding a server rule denying access to the techzapp-crm uploads folder.', 'techzapp-crm'),
+                'warning'
+            );
+        }
+
+        if (Capabilities::canManageSettings()) {
+            printf(
+                '<p><a href="%s">%s</a></p>',
+                esc_url(Menu::url('techzapp-crm-audit')),
+                esc_html__('View the audit log', 'techzapp-crm')
+            );
+        }
+
+        View::cardClose();
+    }
+
+    // ------------------------------------------------------------- field rows
+
+    private function textRow(string $key, string $label, string $value, bool $canEdit, string $placeholder = '', string $help = ''): void
+    {
+        printf('<tr><th scope="row"><label for="%1$s">%2$s</label></th><td>', esc_attr($key), esc_html($label));
+        printf(
+            '<input type="text" id="%s" name="%s" value="%s" class="regular-text" placeholder="%s"%s>',
+            esc_attr($key),
+            esc_attr($key),
+            esc_attr($value),
+            esc_attr($placeholder),
+            $canEdit ? '' : ' disabled'
+        );
+        if ($help !== '') {
+            echo '<p class="description">' . esc_html($help) . '</p>';
+        }
+        echo '</td></tr>';
+    }
+
+    private function textareaRow(string $key, string $label, string $value, bool $canEdit, string $help = ''): void
+    {
+        printf('<tr><th scope="row"><label for="%1$s">%2$s</label></th><td>', esc_attr($key), esc_html($label));
+        printf(
+            '<textarea id="%s" name="%s" rows="4" class="large-text code"%s>%s</textarea>',
+            esc_attr($key),
+            esc_attr($key),
+            $canEdit ? '' : ' disabled',
+            esc_textarea($value)
+        );
+        if ($help !== '') {
+            echo '<p class="description">' . esc_html($help) . '</p>';
+        }
+        echo '</td></tr>';
+    }
+
+    private function numberRow(string $key, string $label, int|float $value, bool $canEdit, string $help = '', ?int $min = null, ?int $max = null, string $step = '1'): void
+    {
+        printf('<tr><th scope="row"><label for="%1$s">%2$s</label></th><td>', esc_attr($key), esc_html($label));
+        printf(
+            '<input type="number" id="%s" name="%s" value="%s" class="small-text" step="%s"%s%s%s>',
+            esc_attr($key),
+            esc_attr($key),
+            esc_attr((string) $value),
+            esc_attr($step),
+            $min === null ? '' : ' min="' . esc_attr((string) $min) . '"',
+            $max === null ? '' : ' max="' . esc_attr((string) $max) . '"',
+            $canEdit ? '' : ' disabled'
+        );
+        if ($help !== '') {
+            echo '<p class="description">' . esc_html($help) . '</p>';
+        }
+        echo '</td></tr>';
+    }
+
+    private function checkboxRow(string $key, string $label, bool $value, bool $canEdit, string $help = ''): void
+    {
+        printf('<tr><th scope="row">%s</th><td>', esc_html($label));
+        printf(
+            '<label><input type="checkbox" name="%s" value="1"%s%s> %s</label>',
+            esc_attr($key),
+            checked($value, true, false),
+            $canEdit ? '' : ' disabled',
+            esc_html__('Enabled', 'techzapp-crm')
+        );
+        if ($help !== '') {
+            echo '<p class="description">' . esc_html($help) . '</p>';
+        }
+        echo '</td></tr>';
+    }
+
+    /** @param array<string,string> $options */
+    private function selectRow(string $key, string $label, string $value, array $options, bool $canEdit): void
+    {
+        printf('<tr><th scope="row"><label for="%1$s">%2$s</label></th><td>', esc_attr($key), esc_html($label));
+        printf('<select id="%s" name="%s"%s>', esc_attr($key), esc_attr($key), $canEdit ? '' : ' disabled');
+
+        foreach ($options as $optionValue => $optionLabel) {
+            printf(
+                '<option value="%s"%s>%s</option>',
+                esc_attr($optionValue),
+                selected($value, $optionValue, false),
+                esc_html($optionLabel)
+            );
+        }
+
+        echo '</select></td></tr>';
+    }
+
+    // --------------------------------------------------------------- actions
+
+    public function handle(string $action): void
+    {
+        match ($action) {
+            'save'        => $this->handleSave(),
+            'kill_switch' => $this->handleKillSwitch(),
+            'run_job'     => $this->handleRunJob(),
+            default       => null,
+        };
+    }
+
+    private function handleSave(): void
+    {
+        $this->authorise('techzapp_crm_settings', true);
+
+        $values = [];
+
+        foreach (['max_send_rate_per_minute', 'max_sends_per_day', 'max_sends_per_cron_run',
+                  'recipient_build_batch', 'soft_bounce_max_attempts', 'alert_rolling_window_hours',
+                  'alert_min_sample_size', 'cron_stale_minutes', 'campaign_overdue_minutes',
+                  'import_retention_hours', 'import_max_file_mb', 'import_batch_rows'] as $key) {
+            $values[$key] = max(0, $this->intInput($key));
+        }
+
+        foreach (['bounce_rate_warning_pct', 'bounce_rate_critical_pct',
+                  'complaint_rate_warning_pct', 'complaint_rate_critical_pct'] as $key) {
+            $values[$key] = max(0.0, (float) $this->input($key, '0'));
+        }
+
+        foreach (['sending_enabled', 'complaint_spike_auto_pause', 'sns_verify_signature'] as $key) {
+            $values[$key] = $this->input($key) === '1';
+        }
+
+        foreach (['ses_region', 'ses_configuration_set', 'company_postal_address'] as $key) {
+            $values[$key] = $this->input($key);
+        }
+
+        $transport = $this->input('mail_transport', 'ses');
+        $values['mail_transport'] = in_array($transport, ['ses', 'log'], true) ? $transport : 'ses';
+
+        $timezone = $this->input('default_timezone');
+        if ($timezone !== '' && !in_array($timezone, timezone_identifiers_list(), true)) {
+            throw CrmException::validation(['default_timezone' => __('Unknown timezone.', 'techzapp-crm')]);
+        }
+        $values['default_timezone'] = $timezone;
+
+        $trackingUrl = $this->input('tracking_base_url');
+        if ($trackingUrl !== '' && !preg_match('#^https?://[^\s/]+#i', $trackingUrl)) {
+            throw CrmException::validation(['tracking_base_url' => __('Enter a full http(s) URL, or leave blank.', 'techzapp-crm')]);
+        }
+        $values['tracking_base_url'] = $trackingUrl;
+
+        $values['ses_verified_identities'] = $this->lines('ses_verified_identities');
+        $values['sns_allowed_topic_arns'] = $this->lines('sns_allowed_topic_arns');
+        $values['test_send_allowed_domains'] = $this->lines('test_send_allowed_domains');
+
+        if (Config::credentialSource() !== 'constant' && Config::credentialSource() !== 'environment') {
+            $values['ses_access_key_id'] = $this->input('ses_access_key_id');
+
+            // A blank secret means "keep what is stored", so the field can be
+            // rendered empty without wiping the credential on every save.
+            $secret = isset($_POST['ses_secret_access_key'])
+                ? trim((string) wp_unslash($_POST['ses_secret_access_key']))
+                : '';
+            if ($secret !== '') {
+                $values['ses_secret_access_key'] = $secret;
+            }
+        }
+
+        Settings::update($values);
+
+        $logged = $values;
+        unset($logged['ses_secret_access_key']);
+        Audit::log('settings.updated', 'settings', '', array_keys($logged));
+
+        $this->redirect('techzapp-crm-settings', [], __('Settings saved.', 'techzapp-crm'));
+    }
+
+    private function handleKillSwitch(): void
+    {
+        $this->authorise('techzapp_crm_kill_switch', true);
+
+        $engage = $this->input('engage') === '1';
+        $reason = $this->input('reason');
+
+        if ($engage && $reason === '') {
+            throw CrmException::validation(['reason' => __('Explain why sending is being stopped.', 'techzapp-crm')]);
+        }
+
+        Settings::update([
+            'kill_switch_engaged' => $engage,
+            'kill_switch_reason'  => $engage ? $reason : '',
+        ]);
+
+        Audit::log(
+            $engage ? 'sending.kill_switch_engaged' : 'sending.kill_switch_released',
+            'system',
+            'kill_switch',
+            ['reason' => $reason]
+        );
+
+        if ($engage) {
+            AlertService::raise(
+                'kill_switch',
+                'sending',
+                'critical',
+                __('Sending is stopped', 'techzapp-crm'),
+                $reason
+            );
+        } else {
+            AlertService::resolve('kill_switch', 'released from the settings screen');
+            AlertService::resolve('auto_pause_complaints', 'released from the settings screen');
+        }
+
+        $this->redirect(
+            'techzapp-crm-settings',
+            [],
+            $engage
+                ? __('Sending stopped. The worker will not send anything until this is released.', 'techzapp-crm')
+                : __('Sending re-enabled.', 'techzapp-crm'),
+            $engage ? 'warning' : 'success'
+        );
+    }
+
+    /** Runs one background job immediately, for setup and troubleshooting. */
+    private function handleRunJob(): void
+    {
+        $this->authorise('techzapp_crm_run_job', true);
+
+        $job = $this->input('job');
+        if (!array_key_exists($job, Cron::JOBS)) {
+            throw CrmException::notFound(__('Unknown job.', 'techzapp-crm'));
+        }
+
+        $summary = Cron::run($job, static fn (Runner $runner): array => match ($job) {
+            'process_campaigns' => Jobs::processCampaigns($runner),
+            'process_events'    => Jobs::processEvents($runner),
+            'process_imports'   => Jobs::processImports($runner),
+            default             => Jobs::maintenance($runner),
+        });
+
+        $this->redirect(
+            'techzapp-crm-settings',
+            [],
+            sprintf(
+                /* translators: 1: job name, 2: JSON summary */
+                __('Ran %1$s: %2$s', 'techzapp-crm'),
+                $job,
+                '<code>' . esc_html((string) wp_json_encode($summary)) . '</code>'
+            )
+        );
+    }
+
+    /** @return list<string> non-empty trimmed lines from a textarea */
+    private function lines(string $key): array
+    {
+        if (!isset($_POST[$key])) {
+            return [];
+        }
+
+        $raw = sanitize_textarea_field(wp_unslash((string) $_POST[$key]));
+        $parts = preg_split('/[\r\n,]+/', $raw) ?: [];
+
+        return array_values(array_filter(array_map('trim', $parts), static fn (string $line): bool => $line !== ''));
+    }
+}
