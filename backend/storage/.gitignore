@@ -1,0 +1,7 @@
+*
+!.gitignore
+!.htaccess
+!imports/
+!logs/
+!sessions/
+!tmp/

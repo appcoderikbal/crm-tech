@@ -1,0 +1,34 @@
+# Normalise line endings in the repository to LF.
+#
+# The PHP runs on Linux shared hosting and the cron scripts are invoked by a
+# Unix scheduler, so CRLF sneaking in from a Windows checkout causes real
+# problems. Working copies still get native endings; only what is stored in git
+# is normalised.
+
+* text=auto eol=lf
+
+*.php    text eol=lf
+*.sql    text eol=lf
+*.md     text eol=lf
+*.yml    text eol=lf
+*.yaml   text eol=lf
+*.json   text eol=lf
+*.ts     text eol=lf
+*.tsx    text eol=lf
+*.css    text eol=lf
+*.html   text eol=lf
+.htaccess text eol=lf
+
+# Binary assets must never be touched.
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.ico    binary
+*.woff   binary
+*.woff2  binary
+*.pdf    binary
+
+# Keep generated lock files out of diffs and language statistics.
+composer.lock      -diff linguist-generated
+package-lock.json  -diff linguist-generated

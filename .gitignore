@@ -1,0 +1,30 @@
+# Secrets — never commit
+backend/config/config.php
+.env
+*.pem
+*.key
+
+# Dependencies
+backend/vendor/
+frontend/node_modules/
+
+# Build output
+frontend/dist/
+frontend/*.tsbuildinfo
+public/assets/
+public/index.html
+
+# Runtime state
+backend/storage/logs/*
+backend/storage/imports/*
+backend/storage/sessions/*
+backend/storage/tmp/*
+!backend/storage/*/.gitignore
+
+# Tooling
+.idea/
+.vscode/
+*.log
+.DS_Store
+Thumbs.db
+.phpunit.cache/
