@@ -1,0 +1,378 @@
+<?php
+
+declare(strict_types=1);
+
+namespace TechzappCrm\Admin\Screens;
+
+use TechzappCrm\Admin\Menu;
+use TechzappCrm\Admin\View;
+use TechzappCrm\Services\ReportService;
+
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+/**
+ * Results for one campaign.
+ *
+ * Every rate names its own denominator. "Accepted" means SES took the message;
+ * "delivered" means a Delivery event came back. They are different numbers and
+ * are never conflated here — if event publishing is not configured, the screen
+ * says the delivery figures are unknown rather than showing zero.
+ */
+final class CampaignReport extends Screen
+{
+    private const RECIPIENT_STATUSES = [
+        'pending'    => 'neutral',
+        'sending'    => 'brand',
+        'accepted'   => 'brand',
+        'delivered'  => 'ok',
+        'bounced'    => 'danger',
+        'complained' => 'danger',
+        'failed'     => 'danger',
+        'suppressed' => 'neutral',
+        'cancelled'  => 'neutral',
+    ];
+
+    public function render(): void
+    {
+        $id = $this->intInput('campaign');
+        $report = ReportService::campaignReport($id);
+
+        $campaign = $report['campaign'];
+        $metrics = $report['metrics'];
+        $rates = $report['rates'];
+
+        View::open(
+            sprintf(
+                /* translators: %s: campaign name */
+                __('Report: %s', 'techzapp-crm'),
+                (string) $campaign['name']
+            ),
+            Menu::url('techzapp-crm-campaigns'),
+            __('All campaigns', 'techzapp-crm')
+        );
+
+        $this->renderHeader($campaign, $metrics);
+
+        foreach ($report['data_quality'] as $note) {
+            View::notice((string) $note, 'warning');
+        }
+
+        $this->renderProgress($metrics);
+        $this->renderRates($metrics, $rates);
+        $this->renderLinks($report['links']);
+        $this->renderRecipients($id);
+
+        echo '<p class="description">' . esc_html((string) $report['tracking_note']) . '</p>';
+
+        View::close();
+    }
+
+    /**
+     * @param array<string,mixed> $campaign
+     * @param array<string,int>   $metrics
+     */
+    private function renderHeader(array $campaign, array $metrics): void
+    {
+        View::cardOpen(__('Overview', 'techzapp-crm'));
+
+        echo '<table class="widefat striped"><tbody>';
+
+        $rows = [
+            __('Status', 'techzapp-crm')  => (string) $campaign['status'],
+            __('Subject', 'techzapp-crm') => (string) $campaign['subject'],
+            __('From', 'techzapp-crm')    => trim((string) $campaign['from_name'] . ' <' . (string) $campaign['from_email'] . '>'),
+            __('Started', 'techzapp-crm') => View::dateTime($campaign['started_at'] ?? null),
+            __('Finished', 'techzapp-crm') => View::dateTime($campaign['completed_at'] ?? null),
+        ];
+
+        foreach ($rows as $label => $value) {
+            printf(
+                '<tr><th scope="row" style="width:180px">%s</th><td>%s</td></tr>',
+                esc_html((string) $label),
+                esc_html($value !== '' ? $value : '—')
+            );
+        }
+
+        if (!empty($campaign['last_error'])) {
+            printf(
+                '<tr><th scope="row">%s</th><td class="tone-danger">%s</td></tr>',
+                esc_html__('Last error', 'techzapp-crm'),
+                esc_html((string) $campaign['last_error'])
+            );
+        }
+
+        echo '</tbody></table>';
+        View::cardClose();
+    }
+
+    /** @param array<string,int> $metrics */
+    private function renderProgress(array $metrics): void
+    {
+        View::statTiles([
+            [
+                'label' => __('Recipients', 'techzapp-crm'),
+                'value' => View::number($metrics['total_recipients']),
+                'hint'  => __('built for this send', 'techzapp-crm'),
+            ],
+            [
+                'label' => __('Accepted by SES', 'techzapp-crm'),
+                'value' => View::number($metrics['accepted']),
+                'hint'  => __('handed over successfully', 'techzapp-crm'),
+                'tone'  => 'brand',
+            ],
+            [
+                'label' => __('Confirmed delivered', 'techzapp-crm'),
+                'value' => View::number($metrics['delivered']),
+                'hint'  => __('delivery event received', 'techzapp-crm'),
+                'tone'  => $metrics['delivered'] > 0 ? 'ok' : 'neutral',
+            ],
+            [
+                'label' => __('Still queued', 'techzapp-crm'),
+                'value' => View::number($metrics['pending']),
+                'tone'  => $metrics['pending'] > 0 ? 'brand' : 'neutral',
+            ],
+            [
+                'label' => __('Failed', 'techzapp-crm'),
+                'value' => View::number($metrics['failed']),
+                'tone'  => $metrics['failed'] > 0 ? 'danger' : 'neutral',
+            ],
+            [
+                'label' => __('Skipped', 'techzapp-crm'),
+                'value' => View::number($metrics['suppressed'] + $metrics['cancelled']),
+                'hint'  => __('suppressed or cancelled', 'techzapp-crm'),
+            ],
+        ]);
+    }
+
+    /**
+     * @param array<string,int>        $metrics
+     * @param array<string,float|null> $rates
+     */
+    private function renderRates(array $metrics, array $rates): void
+    {
+        View::cardOpen(
+            __('Engagement and deliverability', 'techzapp-crm'),
+            __('Each rate states the number it is divided by, because the same word means different things in different tools.', 'techzapp-crm')
+        );
+
+        echo '<table class="widefat striped"><thead><tr>';
+        echo '<th>' . esc_html__('Metric', 'techzapp-crm') . '</th>';
+        echo '<th class="num">' . esc_html__('Count', 'techzapp-crm') . '</th>';
+        echo '<th class="num">' . esc_html__('Rate', 'techzapp-crm') . '</th>';
+        echo '<th>' . esc_html__('Out of', 'techzapp-crm') . '</th>';
+        echo '</tr></thead><tbody>';
+
+        $rows = [
+            [
+                __('Delivered', 'techzapp-crm'),
+                $metrics['delivered'],
+                $rates['delivery_rate'],
+                __('messages accepted by SES', 'techzapp-crm'),
+            ],
+            [
+                __('Bounced (hard + soft)', 'techzapp-crm'),
+                $metrics['hard_bounces'] + $metrics['soft_bounces'],
+                $rates['bounce_rate'],
+                __('send attempts', 'techzapp-crm'),
+            ],
+            [
+                __('Hard bounces', 'techzapp-crm'),
+                $metrics['hard_bounces'],
+                $rates['hard_bounce_rate'],
+                __('send attempts', 'techzapp-crm'),
+            ],
+            [
+                __('Complaints', 'techzapp-crm'),
+                $metrics['complaints'],
+                $rates['complaint_rate'],
+                __('messages accepted by SES', 'techzapp-crm'),
+            ],
+            [
+                __('Unique opens', 'techzapp-crm'),
+                $metrics['unique_opens'],
+                $rates['open_rate'],
+                __('confirmed deliveries', 'techzapp-crm'),
+            ],
+            [
+                __('Unique clicks', 'techzapp-crm'),
+                $metrics['unique_clicks'],
+                $rates['click_rate'],
+                __('confirmed deliveries', 'techzapp-crm'),
+            ],
+            [
+                __('Click-to-open', 'techzapp-crm'),
+                $metrics['unique_clicks'],
+                $rates['click_to_open'],
+                __('unique opens', 'techzapp-crm'),
+            ],
+            [
+                __('Unsubscribes', 'techzapp-crm'),
+                $metrics['unsubscribes'],
+                $rates['unsubscribe_rate'],
+                __('confirmed deliveries', 'techzapp-crm'),
+            ],
+        ];
+
+        foreach ($rows as [$label, $count, $rate, $denominator]) {
+            printf(
+                '<tr><td>%s</td><td class="num">%s</td><td class="num">%s</td><td class="description">%s</td></tr>',
+                esc_html((string) $label),
+                esc_html(View::number((int) $count)),
+                // A null rate means the denominator was zero. Showing 0% there
+                // would claim a measurement that was never possible.
+                $rate === null
+                    ? '<span class="description">—</span>'
+                    : esc_html(View::percent((float) $rate)),
+                esc_html((string) $denominator)
+            );
+        }
+
+        echo '</tbody></table>';
+
+        echo '<p class="description">'
+            . esc_html__('Totals (not unique): ', 'techzapp-crm')
+            . esc_html(sprintf(
+                /* translators: 1: total opens, 2: total clicks */
+                __('%1$s opens, %2$s clicks.', 'techzapp-crm'),
+                View::number($metrics['total_opens']),
+                View::number($metrics['total_clicks'])
+            ))
+            . '</p>';
+
+        View::cardClose();
+    }
+
+    /** @param list<array<string,mixed>> $links */
+    private function renderLinks(array $links): void
+    {
+        if ($links === []) {
+            return;
+        }
+
+        View::cardOpen(__('Links', 'techzapp-crm'));
+
+        echo '<table class="widefat striped"><thead><tr>';
+        echo '<th>' . esc_html__('URL', 'techzapp-crm') . '</th>';
+        echo '<th class="num">' . esc_html__('Unique clicks', 'techzapp-crm') . '</th>';
+        echo '<th class="num">' . esc_html__('Total clicks', 'techzapp-crm') . '</th>';
+        echo '</tr></thead><tbody>';
+
+        foreach ($links as $link) {
+            printf(
+                '<tr><td><span class="techzapp-url">%s</span></td><td class="num">%s</td><td class="num">%s</td></tr>',
+                esc_html((string) $link['url']),
+                esc_html(View::number((int) $link['unique_clicks'])),
+                esc_html(View::number((int) $link['total_clicks']))
+            );
+        }
+
+        echo '</tbody></table>';
+        View::cardClose();
+    }
+
+    private function renderRecipients(int $campaignId): void
+    {
+        $status = $this->input('status');
+        $engagement = $this->input('engagement');
+
+        $result = ReportService::campaignRecipients($campaignId, [
+            'page'       => max(1, $this->intInput('paged', 1)),
+            'status'     => $status !== '' ? $status : null,
+            'engagement' => $engagement !== '' ? $engagement : null,
+            'search'     => $this->input('s'),
+        ]);
+
+        View::cardOpen(__('Recipients', 'techzapp-crm'));
+
+        echo '<form method="get" class="techzapp-search-form">';
+        echo '<input type="hidden" name="page" value="techzapp-crm-report">';
+        printf('<input type="hidden" name="campaign" value="%d">', $campaignId);
+        echo '<div class="techzapp-filters">';
+
+        echo '<select name="status"><option value="">' . esc_html__('Any status', 'techzapp-crm') . '</option>';
+        foreach (array_keys(self::RECIPIENT_STATUSES) as $candidate) {
+            printf(
+                '<option value="%s"%s>%s</option>',
+                esc_attr($candidate),
+                selected($status, $candidate, false),
+                esc_html($candidate)
+            );
+        }
+        echo '</select>';
+
+        echo '<select name="engagement"><option value="">' . esc_html__('Any engagement', 'techzapp-crm') . '</option>';
+        foreach (['opened' => __('Opened', 'techzapp-crm'), 'clicked' => __('Clicked', 'techzapp-crm')] as $value => $label) {
+            printf(
+                '<option value="%s"%s>%s</option>',
+                esc_attr($value),
+                selected($engagement, $value, false),
+                esc_html($label)
+            );
+        }
+        echo '</select>';
+
+        printf(
+            '<input type="search" name="s" value="%s" placeholder="%s">',
+            esc_attr($this->input('s')),
+            esc_attr__('Search email', 'techzapp-crm')
+        );
+
+        submit_button(__('Filter', 'techzapp-crm'), '', '', false);
+        echo '</div></form>';
+
+        if ($result['items'] === []) {
+            echo '<p>' . esc_html__('No recipients match that filter.', 'techzapp-crm') . '</p>';
+            View::cardClose();
+            return;
+        }
+
+        echo '<table class="wp-list-table widefat fixed striped"><thead><tr>';
+        echo '<th>' . esc_html__('Email', 'techzapp-crm') . '</th>';
+        echo '<th>' . esc_html__('Status', 'techzapp-crm') . '</th>';
+        echo '<th>' . esc_html__('Opened', 'techzapp-crm') . '</th>';
+        echo '<th>' . esc_html__('Clicked', 'techzapp-crm') . '</th>';
+        echo '<th>' . esc_html__('Detail', 'techzapp-crm') . '</th>';
+        echo '</tr></thead><tbody>';
+
+        foreach ($result['items'] as $row) {
+            $rowStatus = (string) $row['status'];
+
+            $detail = '';
+            if (!empty($row['last_error_message'])) {
+                $detail = (string) $row['last_error_code'] . ' ' . (string) $row['last_error_message'];
+            } elseif (!empty($row['unsubscribed_at'])) {
+                $detail = __('Unsubscribed', 'techzapp-crm');
+            }
+
+            printf(
+                '<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td class="description">%s</td></tr>',
+                esc_html((string) $row['recipient_email_snapshot']),
+                View::badge($rowStatus, self::RECIPIENT_STATUSES[$rowStatus] ?? 'neutral'),
+                esc_html(View::dateTime($row['first_opened_at'] ?? null)),
+                esc_html(View::dateTime($row['first_clicked_at'] ?? null)),
+                esc_html($detail)
+            );
+        }
+
+        echo '</tbody></table>';
+
+        if ((int) $result['pages'] > 1) {
+            $links = paginate_links([
+                'base'      => add_query_arg('paged', '%#%'),
+                'format'    => '',
+                'prev_text' => '&laquo;',
+                'next_text' => '&raquo;',
+                'total'     => (int) $result['pages'],
+                'current'   => (int) $result['page'],
+            ]);
+
+            if (is_string($links) && $links !== '') {
+                echo '<div class="tablenav bottom"><div class="tablenav-pages">' . wp_kses_post($links) . '</div></div>';
+            }
+        }
+
+        View::cardClose();
+    }
+}

@@ -4,10 +4,9 @@ Email marketing inside WordPress: contacts, lists, campaigns, scheduled sending
 through Amazon SES, delivery and engagement tracking, suppression management and
 deliverability monitoring.
 
-> **Status: migration in progress.** The data layer, service layer, background
-> workers, public endpoints, CLI and updater are complete and verified in
-> WordPress. Contacts and importing work; the campaign screens are still being
-> written — see "What works today" below.
+> **Status: feature-complete.** Data layer, service layer, background workers,
+> public endpoints, CLI, updater and every admin screen are implemented and
+> verified in WordPress — see "What works today" below.
 
 ## Installing
 
@@ -135,16 +134,33 @@ Verified inside WordPress 6.8 / PHP 8.3 / MySQL 8.4:
   capabilities, creates storage and schedules all four jobs
 - All four background jobs run and record heartbeats; health moves from
   "unknown" to "green" once they have reported
-- Dashboard, Contacts (with filters, bulk assign/delete, CSV export) and
-  Settings screens render
+- Every admin screen renders: Dashboard, Contacts, Contact editor, Import,
+  Lists, List members, Campaigns, Campaign editor, Campaign report,
+  Deliverability, Suppressions, Settings and the Audit log
+- The full sending path, end to end: create a list, assign contacts, build a
+  campaign, pre-flight check, test send, schedule or send now, worker delivery,
+  then the per-recipient report
+- Every form handler, including the paths that must fail — a wrong nonce and a
+  user without the capability are both refused before anything is written
+- Every lifecycle button the Campaigns screen offers matches what the state
+  machine permits, checked against all eight statuses
 - All four REST endpoints registered and behaving safely: the pixel returns a
   GIF for an invalid token, a forged click signature redirects to the site root
   rather than anywhere attacker-supplied
 - WP-CLI commands
 
-Still to build: the Lists, Campaigns, Campaign editor, Campaign report, Import,
-Suppressions, Deliverability, Contact edit and Audit log screens. Menu items
-only appear for screens that exist, so nothing in the UI leads to a broken page.
+### Sending your first campaign
+
+1. **Settings** — set the SES region, credentials and your verified identities
+2. **Lists** — create a list
+3. **Contacts** or **Import** — assign contacts to it
+4. **Campaigns → New campaign** — write it, then use the pre-flight check
+5. **Send a test** to yourself, then **Schedule** or **Send now**
+6. **Reports** — watch delivery, bounces and complaints against your thresholds
+
+Open and click rates are measured against messages SES accepted, and delivery
+figures need SES event publishing configured — until then the report says the
+delivery rate is unknown rather than showing zero.
 
 ## Updating production from GitHub
 
