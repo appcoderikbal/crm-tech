@@ -8,6 +8,12 @@ backend/config/config.php
 backend/vendor/
 frontend/node_modules/
 
+# The plugin's bundled libraries are a build artefact. They ship inside the
+# release ZIP (shared hosting cannot run Composer) but do not belong in git:
+# the AWS SDK alone is ~70 MB of service definitions we mostly delete.
+techzapp-crm/vendor/
+build/
+
 # Build output
 frontend/dist/
 frontend/*.tsbuildinfo
