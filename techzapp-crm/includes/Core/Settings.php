@@ -49,7 +49,7 @@ final class Settings
         'recipient_build_batch'       => [2000, 'int'],
         'soft_bounce_max_attempts'    => [3, 'int'],
         'reconcile_stale_minutes'     => [15, 'int'],
-        'default_timezone'            => ['', 'string'],
+        'default_timezone'            => ['America/New_York', 'string'],
         'tracking_base_url'           => ['', 'string'],
         'company_postal_address'      => ['', 'string'],
         'test_send_allowed_domains'   => [[], 'array'],
@@ -181,7 +181,13 @@ final class Settings
             foreach (self::DEFAULTS as $key => [$default, $_type]) {
                 $defaults[$key] = $default;
             }
-            $defaults['default_timezone'] = wp_timezone_string() ?: 'UTC';
+            // A fresh WordPress reports "+00:00" rather than a named zone.
+            // Only adopt the site's value when it is a real IANA identifier;
+            // otherwise keep the US default, which is what this install targets.
+            $siteZone = wp_timezone_string();
+            if (in_array($siteZone, timezone_identifiers_list(), true)) {
+                $defaults['default_timezone'] = $siteZone;
+            }
 
             add_option(self::OPTION, $defaults, '', false);
             self::$cache = null;
@@ -217,7 +223,35 @@ final class Settings
         if ($configured !== '' && in_array($configured, timezone_identifiers_list(), true)) {
             return $configured;
         }
-        return wp_timezone_string() ?: 'UTC';
+
+        $siteZone = wp_timezone_string();
+        if (in_array($siteZone, timezone_identifiers_list(), true)) {
+            return $siteZone;
+        }
+
+        return 'America/New_York';
+    }
+
+    /**
+     * US timezones, offered first in the scheduling and settings dropdowns.
+     *
+     * The full IANA list is still available; this is just the short list that
+     * covers the overwhelming majority of US sending.
+     *
+     * @return array<string,string>
+     */
+    public static function commonTimezones(): array
+    {
+        return [
+            'America/New_York'    => __('Eastern (New York)', 'techzapp-crm'),
+            'America/Chicago'     => __('Central (Chicago)', 'techzapp-crm'),
+            'America/Denver'      => __('Mountain (Denver)', 'techzapp-crm'),
+            'America/Phoenix'     => __('Mountain, no DST (Phoenix)', 'techzapp-crm'),
+            'America/Los_Angeles' => __('Pacific (Los Angeles)', 'techzapp-crm'),
+            'America/Anchorage'   => __('Alaska (Anchorage)', 'techzapp-crm'),
+            'Pacific/Honolulu'    => __('Hawaii (Honolulu)', 'techzapp-crm'),
+            'UTC'                 => __('UTC', 'techzapp-crm'),
+        ];
     }
 
     private static function coerce(mixed $value, string $type): mixed

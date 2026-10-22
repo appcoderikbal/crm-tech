@@ -38,6 +38,8 @@ final class SettingsScreen extends Screen
             View::notice(__('Only administrators can change these settings.', 'techzapp-crm'), 'info');
         }
 
+        \TechzappCrm\Admin\Guide::render();
+
         $this->killSwitchCard($canEdit);
 
         echo '<form method="post">';
@@ -266,8 +268,7 @@ final class SettingsScreen extends Screen
 
         echo '<table class="form-table" role="presentation"><tbody>';
 
-        $this->textRow('default_timezone', __('Default timezone', 'techzapp-crm'), (string) $settings['default_timezone'], $canEdit,
-            wp_timezone_string(), __('Leave blank to use the site timezone.', 'techzapp-crm'));
+        $this->timezoneRow((string) $settings['default_timezone'], $canEdit);
 
         $this->textRow('tracking_base_url', __('Tracking base URL', 'techzapp-crm'), (string) $settings['tracking_base_url'], $canEdit,
             home_url(), __('Leave blank to use the site URL.', 'techzapp-crm'));
@@ -509,6 +510,48 @@ final class SettingsScreen extends Screen
         if ($help !== '') {
             echo '<p class="description">' . esc_html($help) . '</p>';
         }
+        echo '</td></tr>';
+    }
+
+    /**
+     * Timezone picker.
+     *
+     * US zones are listed first because that is this install's audience; the
+     * full IANA list follows for anyone sending elsewhere.
+     */
+    private function timezoneRow(string $value, bool $canEdit): void
+    {
+        echo '<tr><th scope="row"><label for="default_timezone">'
+            . esc_html__('Default timezone', 'techzapp-crm') . '</label></th><td>';
+
+        printf('<select id="default_timezone" name="default_timezone"%s>', $canEdit ? '' : ' disabled');
+
+        echo '<optgroup label="' . esc_attr__('United States', 'techzapp-crm') . '">';
+        foreach (Settings::commonTimezones() as $zone => $label) {
+            printf(
+                '<option value="%s"%s>%s</option>',
+                esc_attr($zone),
+                selected($value, $zone, false),
+                esc_html($label)
+            );
+        }
+        echo '</optgroup>';
+
+        echo '<optgroup label="' . esc_attr__('All timezones', 'techzapp-crm') . '">';
+        foreach (timezone_identifiers_list() as $zone) {
+            printf(
+                '<option value="%s"%s>%s</option>',
+                esc_attr($zone),
+                selected($value, $zone, false),
+                esc_html($zone)
+            );
+        }
+        echo '</optgroup>';
+
+        echo '</select>';
+        echo '<p class="description">'
+            . esc_html__('Campaigns are scheduled in this zone and stored in UTC. For US business audiences, Tuesday to Thursday 9-11am performs best.', 'techzapp-crm')
+            . '</p>';
         echo '</td></tr>';
     }
 

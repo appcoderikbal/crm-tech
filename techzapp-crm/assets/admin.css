@@ -160,3 +160,60 @@ a.techzapp-tile:hover { border-color: #2271b1; }
   .techzapp-columns { display: block; }
   .techzapp-column { margin-bottom: 16px; }
 }
+
+/* ------------------------------------------------------------- import UI */
+.techzapp-code-sample {
+  background: #f6f7f7;
+  border: 1px solid #dcdcde;
+  border-left: 3px solid #2271b1;
+  padding: 10px 12px;
+  font-size: 12px;
+  overflow-x: auto;
+  margin: 8px 0 12px;
+}
+.techzapp-checkbox { display: inline-block; margin: 2px 0; }
+.techzapp-scroll { overflow-x: auto; max-width: 100%; }
+
+/* --------------------------------------------------------- setup guide */
+.techzapp-guide {
+  background: #fff;
+  border: 1px solid #c3c4c7;
+  border-left: 4px solid #2271b1;
+  border-radius: 4px;
+  margin: 16px 0;
+  padding: 0;
+}
+.techzapp-guide > summary {
+  padding: 12px 16px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #1d2327;
+}
+.techzapp-guide > summary:hover { background: #f6f7f7; }
+.techzapp-guide__body {
+  padding: 4px 16px 14px;
+  border-top: 1px solid #dcdcde;
+  columns: 2;
+  column-gap: 28px;
+}
+.techzapp-guide__item {
+  break-inside: avoid;
+  padding: 10px 0;
+  border-bottom: 1px solid #f0f0f1;
+}
+.techzapp-guide__item h4 { margin: 0 0 6px; font-size: 13px; }
+.techzapp-guide__item p { margin: 0 0 5px; }
+.techzapp-guide__tag {
+  display: inline-block;
+  min-width: 86px;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  color: #646970;
+}
+.techzapp-guide__tag.tag-rec { color: #2271b1; }
+
+@media screen and (max-width: 1100px) {
+  .techzapp-guide__body { columns: 1; }
+}

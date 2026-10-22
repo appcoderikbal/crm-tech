@@ -111,6 +111,7 @@ function boot(): void
         Admin\Menu::register();
         Admin\Notices::register();
         Admin\Assets::register();
+        Admin\Ajax::register();
     }
 
     if (defined('WP_CLI') && WP_CLI) {
