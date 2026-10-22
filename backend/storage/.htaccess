@@ -1,9 +1,0 @@
-# Defence in depth: this directory must live OUTSIDE public_html.
-# If it is ever placed inside the web root by mistake, deny everything.
-<IfModule mod_authz_core.c>
-    Require all denied
-</IfModule>
-<IfModule !mod_authz_core.c>
-    Order allow,deny
-    Deny from all
-</IfModule>

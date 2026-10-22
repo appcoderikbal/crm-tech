@@ -1,36 +1,28 @@
-# Secrets — never commit
-backend/config/config.php
+# This repository is the plugin. Its contents are what WordPress installs, so
+# almost nothing is excluded — including vendor/, which has to ship because
+# shared hosting cannot run Composer. It is the stripped bundle produced by
+# bin/install-vendor.sh (~8 MB), not a plain `composer install` (~72 MB).
+
+# Build output
+/build/
+
+# Local development only, never part of a release
+docker-compose*.yml
+.wp-env.json
+*.local.php
+
+# Secrets must never be committed. Credentials belong in wp-config.php.
 .env
 *.pem
 *.key
 
-# Dependencies
-backend/vendor/
-frontend/node_modules/
-
-# The plugin's bundled libraries are a build artefact. They ship inside the
-# release ZIP (shared hosting cannot run Composer) but do not belong in git:
-# the AWS SDK alone is ~70 MB of service definitions we mostly delete.
-techzapp-crm/vendor/
-build/
-
-# Build output
-frontend/dist/
-frontend/*.tsbuildinfo
-public/assets/
-public/index.html
-
-# Runtime state
-backend/storage/logs/*
-backend/storage/imports/*
-backend/storage/sessions/*
-backend/storage/tmp/*
-!backend/storage/*/.gitignore
-
-# Tooling
+# Tooling and OS noise
+/node_modules/
 .idea/
 .vscode/
 *.log
+*.tsbuildinfo
 .DS_Store
 Thumbs.db
 .phpunit.cache/
+.phpunit.result.cache
