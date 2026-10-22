@@ -16,6 +16,7 @@ use TechzappCrm\Core\Jobs;
 use TechzappCrm\Core\Runner;
 use TechzappCrm\Core\Settings;
 use TechzappCrm\Core\Storage;
+use TechzappCrm\Core\Updater;
 use TechzappCrm\Rest\Routes;
 use TechzappCrm\Services\AlertService;
 use TechzappCrm\Services\Mail\Mailer;
@@ -420,6 +421,7 @@ final class SettingsScreen extends Screen
             __('Max upload size', 'techzapp-crm')   => (string) ini_get('upload_max_filesize'),
             __('Worker time budget', 'techzapp-crm') => Config::maxRuntimeSeconds() . 's',
             __('Mail transport', 'techzapp-crm')    => Mailer::transport()->name(),
+            __('Plugin version', 'techzapp-crm')    => $this->versionLine(),
         ] as $label => $value) {
             printf('<tr><th scope="row">%s</th><td>%s</td></tr>', esc_html($label), esc_html($value));
         }
@@ -441,6 +443,35 @@ final class SettingsScreen extends Screen
         }
 
         View::cardClose();
+    }
+
+    /** Installed version, plus whatever the updater last saw on GitHub. */
+    private function versionLine(): string
+    {
+        $status = Updater::status();
+
+        if ($status['update_ready']) {
+            return sprintf(
+                /* translators: 1: installed version, 2: available version */
+                __('%1$s — version %2$s is available on the Plugins screen', 'techzapp-crm'),
+                $status['installed'],
+                $status['latest']
+            );
+        }
+
+        if ($status['latest'] === null) {
+            return sprintf(
+                /* translators: %s: installed version */
+                __('%s — no published release found yet', 'techzapp-crm'),
+                $status['installed']
+            );
+        }
+
+        return sprintf(
+            /* translators: %s: installed version */
+            __('%s — up to date', 'techzapp-crm'),
+            $status['installed']
+        );
     }
 
     // ------------------------------------------------------------- field rows

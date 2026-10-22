@@ -112,6 +112,61 @@ Still to build: the Lists, Campaigns, Campaign editor, Campaign report, Import,
 Suppressions, Deliverability, Contact edit and Audit log screens. Menu items
 only appear for screens that exist, so nothing in the UI leads to a broken page.
 
+## Updating production from GitHub
+
+The plugin checks this repository for new releases and offers them through the
+normal WordPress update screen — the same "Update now" button as any other
+plugin. No FTP, no re-uploading.
+
+### Cutting a release
+
+```bash
+cd techzapp-crm
+./bin/release.sh 1.0.1 --notes "Adds the campaigns screen"
+```
+
+That bumps the version in both places WordPress reads, builds the ZIP, verifies
+the packaged version matches, commits, tags `v1.0.1`, pushes, and publishes a
+GitHub Release with the ZIP attached.
+
+Use `--dry-run` first to bump and build without committing anything.
+
+Publishing needs either the [GitHub CLI](https://cli.github.com/) authenticated,
+or `GITHUB_TOKEN` exported. Without one the script still commits and pushes the
+tag, then tells you to attach the ZIP by hand.
+
+### Why the ZIP has to be attached
+
+GitHub generates a source archive for every tag, and that archive is **not
+installable**. `vendor/` is git-ignored, so it contains no AWS SDK and no
+HTMLPurifier — a site updated from it would fatal on the next send.
+
+The updater therefore only offers a release that has a `techzapp-crm.zip`
+asset attached. A release without one is reported as "no update available"
+rather than installed, which is the safe way round.
+
+### On the production site
+
+- Updates appear within six hours, or immediately via
+  **Plugins → Techzapp CRM → Check for updates**
+- **Settings → Hosting environment** shows the installed version and whether a
+  newer one is waiting
+- Every version stays available: releases are immutable, so rolling back is a
+  matter of installing an older release's ZIP
+
+For a private repository, or to lift GitHub's 60-requests-per-hour anonymous
+limit, add a token to `wp-config.php`:
+
+```php
+define( 'TECHZAPP_CRM_GITHUB_TOKEN', 'ghp_…' );
+```
+
+### Version numbering
+
+`MAJOR.MINOR.PATCH`. The database schema carries its own `DB_VERSION`, so a
+release that does not touch the schema will not re-run `dbDelta`. Schema
+changes are additive and applied automatically on upgrade.
+
 ## Requirements
 
 PHP 8.2+, WordPress 6.0+, MySQL 8.0+ / MariaDB 10.5+, and an Amazon SES account

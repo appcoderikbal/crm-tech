@@ -12,6 +12,13 @@
  * Text Domain:       techzapp-crm
  * Domain Path:       /languages
  *
+ * Update URI:        https://github.com/appcoderikbal/crm-tech
+ *
+ * That Update URI header is what makes self-hosted updates work: WordPress
+ * 5.8+ routes update checks for this plugin to the update_plugins_github.com
+ * filter instead of wordpress.org, and Core\Updater answers it from the
+ * repository's GitHub Releases.
+ *
  * @package TechzappCrm
  */
 
@@ -105,6 +112,7 @@ function boot(): void
 {
     Core\Installer::maybeUpgrade();
     Core\Cron::register();
+    Core\Updater::register();
     Rest\Routes::register();
 
     if (is_admin()) {
@@ -112,6 +120,7 @@ function boot(): void
         Admin\Notices::register();
         Admin\Assets::register();
         Admin\Ajax::register();
+        add_action('admin_notices', [Core\Updater::class, 'renderCheckNotice']);
     }
 
     if (defined('WP_CLI') && WP_CLI) {
