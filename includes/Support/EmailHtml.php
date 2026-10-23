@@ -57,7 +57,7 @@ final class EmailHtml
             return $html;
         }
 
-        if (preg_match('/<(p|div|table|ul|ol|h[1-6]|blockquote|tr|td)/i', $html) === 1) {
+        if (preg_match('/<(?:p|div|table|ul|ol|h[1-6]|blockquote|tr|td)[\s>\/]/i', $html) === 1) {
             return $html;
         }
 
@@ -276,6 +276,66 @@ final class EmailHtml
     }
 
     /** Appends the open-tracking pixel placeholder to the document body. */
+    /**
+     * Wraps the message in a centred container, the way marketing email is
+     * conventionally laid out.
+     *
+     * Sent as a bare fragment, a message stretches to whatever width the
+     * reading pane happens to be, which on a desktop client means very long
+     * lines and an amateur look next to anything built from a template.
+     *
+     * The structure is the one email clients have reliably supported for two
+     * decades: an outer table at full width carrying the page background, and
+     * an inner table at a fixed maximum width centred inside it. Tables rather
+     * than flexbox because Outlook renders through Word, and inline styles
+     * rather than a stylesheet because Gmail strips <style> blocks.
+     *
+     * @param array{width?:int,background?:string,surface?:string,radius?:int} $options
+     */
+    public static function wrapInLayout(string $html, array $options = []): string
+    {
+        // Already a full document: a pasted template brings its own shell and
+        // wrapping it again would nest one layout inside another.
+        if (preg_match('/<(?:!doctype|html|body)[\s>]/i', $html) === 1) {
+            return $html;
+        }
+
+        $width = max(320, min(1200, (int) ($options['width'] ?? 600)));
+        // Each role carries its own fallback: a rejected page background must
+        // not quietly become white and erase the card against it.
+        $background = self::safeColour($options['background'] ?? '#f4f5f7', '#f4f5f7');
+        $surface = self::safeColour($options['surface'] ?? '#ffffff', '#ffffff');
+        $radius = max(0, min(32, (int) ($options['radius'] ?? 8)));
+
+        return '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"'
+            . ' "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">'
+            . '<html xmlns="http://www.w3.org/1999/xhtml"><head>'
+            . '<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />'
+            . '<meta name="viewport" content="width=device-width, initial-scale=1" />'
+            . '</head>'
+            . '<body style="margin:0;padding:0;background-color:' . $background . ';">'
+            . '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"'
+            . ' style="background-color:' . $background . ';margin:0;padding:0;"><tr>'
+            . '<td align="center" style="padding:24px 12px;">'
+            . '<table role="presentation" width="' . $width . '" cellpadding="0" cellspacing="0" border="0"'
+            . ' style="width:100%;max-width:' . $width . 'px;background-color:' . $surface . ';'
+            . 'border-radius:' . $radius . 'px;"><tr>'
+            . '<td style="padding:28px 28px 20px 28px;font-family:Arial,Helvetica,sans-serif;'
+            . 'font-size:15px;line-height:1.6;color:#1f2328;">'
+            . $html
+            . '</td></tr></table>'
+            . '</td></tr></table>'
+            . '</body></html>';
+    }
+
+    /** Only a literal hex colour reaches the markup. */
+    private static function safeColour(mixed $value, string $fallback = '#ffffff'): string
+    {
+        $value = is_string($value) ? trim($value) : '';
+
+        return preg_match('/^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i', $value) === 1 ? $value : $fallback;
+    }
+
     public static function appendPixelToken(string $html): string
     {
         $pixel = '<img src="' . self::PIXEL_TOKEN . '" width="1" height="1" alt="" '

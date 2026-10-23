@@ -64,6 +64,17 @@ final class CampaignRenderer
             $html = self::injectPreheader($html, $preview);
         }
 
+        // Applied after the footer and preheader so both sit inside the
+        // container, and before the pixel so the token survives untouched.
+        if (Settings::bool('email_layout_enabled', true)) {
+            $html = EmailHtml::wrapInLayout($html, [
+                'width'      => Settings::int('email_container_width', 600),
+                'background' => Settings::string('email_background_color', '#f4f5f7'),
+                'surface'    => Settings::string('email_surface_color', '#ffffff'),
+                'radius'     => Settings::int('email_corner_radius', 8),
+            ]);
+        }
+
         if (!empty($campaign['track_opens'])) {
             $html = EmailHtml::appendPixelToken($html);
         }

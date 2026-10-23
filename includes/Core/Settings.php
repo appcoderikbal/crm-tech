@@ -54,6 +54,13 @@ final class Settings
         'soft_bounce_max_attempts'    => [3, 'int'],
         'reconcile_stale_minutes'     => [15, 'int'],
         'default_timezone'            => ['America/New_York', 'string'],
+        // Layout of the sent message. Without a container the body stretches
+        // to the full width of the reading pane.
+        'email_layout_enabled'        => [true, 'bool'],
+        'email_container_width'       => [600, 'int'],
+        'email_background_color'      => ['#f4f5f7', 'string'],
+        'email_surface_color'         => ['#ffffff', 'string'],
+        'email_corner_radius'         => [8, 'int'],
         'tracking_base_url'           => ['', 'string'],
         'company_postal_address'      => ['', 'string'],
         'test_send_allowed_domains'   => [[], 'array'],

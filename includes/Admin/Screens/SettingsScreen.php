@@ -368,6 +368,38 @@ final class SettingsScreen extends Screen
 
     private function campaignDefaultsCard(array $settings, bool $canEdit): void
     {
+        View::cardOpen(
+            __('Email layout', 'techzapp-crm'),
+            __('How the message is framed. Without a container it stretches to the full width of the reading pane, which on a desktop client means very long lines.', 'techzapp-crm')
+        );
+
+        echo '<table class="form-table" role="presentation"><tbody>';
+
+        $this->checkboxRow('email_layout_enabled', __('Centred container', 'techzapp-crm'),
+            (bool) ($settings['email_layout_enabled'] ?? true), $canEdit,
+            __('Wraps the message in a centred card. Turn off only if your content already carries its own full layout.', 'techzapp-crm'));
+
+        $this->numberRow('email_container_width', __('Content width', 'techzapp-crm'),
+            (int) ($settings['email_container_width'] ?? 600), $canEdit,
+            __('Pixels. 600 is the long-standing convention and is safe in every client.', 'techzapp-crm'), 320);
+
+        $this->textRow('email_background_color', __('Page background', 'techzapp-crm'),
+            (string) ($settings['email_background_color'] ?? '#f4f5f7'), $canEdit,
+            '#f4f5f7',
+            __('Hex colour behind the card.', 'techzapp-crm'));
+
+        $this->textRow('email_surface_color', __('Card background', 'techzapp-crm'),
+            (string) ($settings['email_surface_color'] ?? '#ffffff'), $canEdit,
+            '#ffffff',
+            __('Hex colour of the card itself.', 'techzapp-crm'));
+
+        $this->numberRow('email_corner_radius', __('Corner radius', 'techzapp-crm'),
+            (int) ($settings['email_corner_radius'] ?? 8), $canEdit,
+            __('Pixels. Outlook squares the corners off regardless; everything else honours it.', 'techzapp-crm'), 0);
+
+        echo '</tbody></table>';
+        View::cardClose();
+
         View::cardOpen(__('Campaign defaults', 'techzapp-crm'));
 
         echo '<table class="form-table" role="presentation"><tbody>';
@@ -752,6 +784,18 @@ final class SettingsScreen extends Screen
 
         $mode = $this->input('processing_mode', 'manual');
         $values['processing_mode'] = in_array($mode, ['manual', 'wp_cron'], true) ? $mode : 'manual';
+
+        $values['email_layout_enabled'] = $this->input('email_layout_enabled') !== '';
+        $values['email_container_width'] = max(320, min(1200, $this->intInput('email_container_width', 600)));
+        $values['email_corner_radius'] = max(0, min(32, $this->intInput('email_corner_radius')));
+
+        foreach (['email_background_color' => '#f4f5f7', 'email_surface_color' => '#ffffff'] as $key => $fallback) {
+            $colour = trim($this->input($key));
+            if ($colour !== '' && preg_match('/^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i', $colour) !== 1) {
+                throw CrmException::validation([$key => __('Enter a hex colour such as #ffffff.', 'techzapp-crm')]);
+            }
+            $values[$key] = $colour !== '' ? $colour : $fallback;
+        }
 
         $timezone = $this->input('default_timezone');
         if ($timezone !== '' && !in_array($timezone, timezone_identifiers_list(), true)) {
