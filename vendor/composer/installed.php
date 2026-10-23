@@ -3,7 +3,7 @@
         'name' => 'techzapp/crm-wordpress-plugin',
         'pretty_version' => 'dev-main',
         'version' => 'dev-main',
-        'reference' => 'e282cb7c5b4f6be8a42efb18b92632529e777fb7',
+        'reference' => '571b034591b2b36d844ff9498c6a18f916388e5a',
         'type' => 'wordpress-plugin',
         'install_path' => __DIR__ . '/../../',
         'aliases' => array(),
@@ -184,7 +184,7 @@
         'techzapp/crm-wordpress-plugin' => array(
             'pretty_version' => 'dev-main',
             'version' => 'dev-main',
-            'reference' => 'e282cb7c5b4f6be8a42efb18b92632529e777fb7',
+            'reference' => '571b034591b2b36d844ff9498c6a18f916388e5a',
             'type' => 'wordpress-plugin',
             'install_path' => __DIR__ . '/../../',
             'aliases' => array(),
