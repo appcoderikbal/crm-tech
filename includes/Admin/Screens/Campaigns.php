@@ -10,6 +10,7 @@ use TechzappCrm\Core\Capabilities;
 use TechzappCrm\Core\CrmException;
 use TechzappCrm\Services\CampaignService;
 use TechzappCrm\Services\ListService;
+use TechzappCrm\Services\Mail\Mailer;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -78,8 +79,15 @@ final class Campaigns extends Screen
         echo '</tbody></table>';
 
         echo '<p class="description">'
-            . esc_html__('Open and click rates are measured against messages Amazon SES accepted, not against the size of the list.', 'techzapp-crm')
+            . esc_html__('Open and click rates are measured against messages the provider accepted, not against the size of the list.', 'techzapp-crm')
             . '</p>';
+
+        if (Mailer::transport()->name() === 'log') {
+            View::notice(
+                __('The mail transport is set to "log": these campaigns were written to the plugin log, not sent to anyone.', 'techzapp-crm'),
+                'warning'
+            );
+        }
 
         $this->renderPagination($result);
         View::close();

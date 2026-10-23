@@ -9,6 +9,7 @@ use TechzappCrm\Admin\View;
 use TechzappCrm\Core\Capabilities;
 use TechzappCrm\Core\Cron;
 use TechzappCrm\Services\CampaignService;
+use TechzappCrm\Services\Mail\Mailer;
 use TechzappCrm\Services\ReportService;
 
 if (!defined('ABSPATH')) {
@@ -56,6 +57,7 @@ final class CampaignReport extends Screen
             __('All campaigns', 'techzapp-crm')
         );
 
+        $this->renderTransportWarning();
         $this->renderHeader($campaign, $metrics);
         $this->renderSendControl($campaign, $metrics);
 
@@ -112,6 +114,37 @@ final class CampaignReport extends Screen
     }
 
     /**
+     * Says plainly when no mail is leaving the building.
+     *
+     * The log transport records each message to a file and reports success,
+     * which is correct for a staging site and indistinguishable from a real
+     * send everywhere a count appears. Without this the report reads exactly
+     * like a delivered campaign.
+     */
+    private function renderTransportWarning(): void
+    {
+        if (Mailer::transport()->name() !== 'log') {
+            return;
+        }
+
+        $overridden = defined('TECHZAPP_CRM_MAIL_TRANSPORT');
+
+        View::notice(
+            sprintf(
+                '<strong>%s</strong> %s %s',
+                esc_html__('No email is actually being sent.', 'techzapp-crm'),
+                esc_html__('The mail transport is set to "log": every message is written to the plugin log file and reported as accepted, but nothing leaves this server. The figures below describe what would have been sent.', 'techzapp-crm'),
+                esc_html(
+                    $overridden
+                        ? __('This is forced by the TECHZAPP_CRM_MAIL_TRANSPORT constant in wp-config.php, which overrides the setting. Remove it to send through Amazon SES.', 'techzapp-crm')
+                        : __('Change it under Settings to send through Amazon SES.', 'techzapp-crm')
+                )
+            ),
+            'warning'
+        );
+    }
+
+    /**
      * The live send panel.
      *
      * Shown whenever the campaign still owns unsent recipients. In manual mode
@@ -140,8 +173,12 @@ final class CampaignReport extends Screen
         // Arriving straight from "Send now" starts without a second click.
         $autostart = $this->input('sending') === '1' && $status !== 'paused';
 
+        $pretend = Mailer::transport()->name() === 'log';
+
         View::cardOpen(
-            __('Sending', 'techzapp-crm'),
+            $pretend
+                ? __('Sending (log only - nothing is delivered)', 'techzapp-crm')
+                : __('Sending', 'techzapp-crm'),
             $manual
                 ? __('Scheduled background jobs are turned off, so this tab does the sending. Keep it open until it finishes.', 'techzapp-crm')
                 : __('A background worker is also processing this campaign. You can drive it from here as well.', 'techzapp-crm')
@@ -288,10 +325,17 @@ final class CampaignReport extends Screen
                 'hint'  => __('built for this send', 'techzapp-crm'),
             ],
             [
-                'label' => __('Accepted by SES', 'techzapp-crm'),
+                // Naming the provider that actually handled it: "Accepted by
+                // SES" on a site writing to a log file is simply untrue, and
+                // it is the first number anyone reads after a send.
+                'label' => Mailer::transport()->name() === 'log'
+                    ? __('Written to the log', 'techzapp-crm')
+                    : __('Accepted by SES', 'techzapp-crm'),
                 'value' => View::number($metrics['accepted']),
-                'hint'  => __('handed over successfully', 'techzapp-crm'),
-                'tone'  => 'brand',
+                'hint'  => Mailer::transport()->name() === 'log'
+                    ? __('NOT sent to anyone', 'techzapp-crm')
+                    : __('handed over successfully', 'techzapp-crm'),
+                'tone'  => Mailer::transport()->name() === 'log' ? 'warn' : 'brand',
             ],
             [
                 'label' => __('Confirmed delivered', 'techzapp-crm'),
