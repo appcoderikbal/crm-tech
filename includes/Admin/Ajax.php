@@ -177,6 +177,7 @@ final class Ajax
             'status'      => $status,
             'done'        => $done,
             'note'        => $note,
+            'log'         => self::recentOutcomes($campaignId),
             'total'       => $total,
             'pending'     => $pending,
             'sent'        => (int) ($row['sent'] ?? 0),
@@ -184,6 +185,48 @@ final class Ajax
             'skipped'     => (int) ($row['skipped'] ?? 0),
             'percent'     => $total > 0 ? (int) floor((($total - $pending) / $total) * 100) : 0,
         ];
+    }
+
+    /**
+     * The most recently settled recipients, newest first.
+     *
+     * Keyed by recipient id so the browser can append only what it has not
+     * seen. Carries the provider's own error text: "Email address is not
+     * verified" and "Maximum sending rate exceeded" need completely different
+     * responses, and a generic "failed" tells the operator neither.
+     *
+     * @return list<array<string,mixed>>
+     */
+    private static function recentOutcomes(int $campaignId, int $limit = 25): array
+    {
+        $rows = Database::all(
+            "SELECT id, recipient_email_snapshot, status, attempts,
+                    last_error_code, last_error_message, ses_message_id, updated_at
+               FROM {campaign_recipients}
+              WHERE campaign_id = :id
+                AND status NOT IN ('pending', 'scheduled')
+           ORDER BY updated_at DESC, id DESC
+              LIMIT " . max(1, min(100, $limit)),
+            ['id' => $campaignId]
+        );
+
+        return array_map(static function (array $row): array {
+            $detail = '';
+            if (($row['last_error_message'] ?? '') !== '') {
+                $detail = trim((string) $row['last_error_code'] . ' ' . (string) $row['last_error_message']);
+            } elseif (($row['ses_message_id'] ?? '') !== '') {
+                $detail = (string) $row['ses_message_id'];
+            }
+
+            return [
+                'id'      => (int) $row['id'],
+                'email'   => (string) $row['recipient_email_snapshot'],
+                'status'  => (string) $row['status'],
+                'attempts' => (int) $row['attempts'],
+                'detail'  => $detail,
+                'at'      => (string) $row['updated_at'],
+            ];
+        }, $rows);
     }
 
     /**

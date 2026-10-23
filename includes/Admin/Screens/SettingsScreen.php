@@ -20,6 +20,7 @@ use TechzappCrm\Core\Updater;
 use TechzappCrm\Rest\Routes;
 use TechzappCrm\Services\AlertService;
 use TechzappCrm\Services\Mail\Mailer;
+use TechzappCrm\Support\EmailAddress;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -57,6 +58,7 @@ final class SettingsScreen extends Screen
 
         echo '</form>';
 
+        $this->diagnosticsCard($canEdit);
         $this->endpointsCard();
         $this->workersCard($canEdit);
         $this->environmentCard();
@@ -65,6 +67,92 @@ final class SettingsScreen extends Screen
     }
 
     // ------------------------------------------------------------- rendering
+
+    /**
+     * Proves whether Amazon SES is actually usable from this server.
+     *
+     * Settings being filled in is not the same as sending working: the
+     * credentials can be wrong, the region can be wrong, the identity can be
+     * unverified, the account can be in the sandbox, or the host can block
+     * outbound HTTPS. Each of those fails differently, and none of them is
+     * visible until something tries to send. This tries, and reports exactly
+     * what came back.
+     */
+    private function diagnosticsCard(bool $canEdit): void
+    {
+        View::cardOpen(
+            __('Test Amazon SES', 'techzapp-crm'),
+            __('Check the connection and send yourself a real message before trusting a campaign to it.', 'techzapp-crm')
+        );
+
+        $transport = Mailer::transport();
+
+        printf(
+            '<p><strong>%s</strong> %s</p>',
+            esc_html__('Transport:', 'techzapp-crm'),
+            esc_html($transport->name())
+        );
+
+        if ($transport->name() === 'log') {
+            View::notice(
+                __('The transport is set to "log": messages are written to the plugin log and nothing is actually sent. Switch it to SES above to send for real.', 'techzapp-crm'),
+                'warning'
+            );
+        }
+
+        if (!$canEdit) {
+            View::cardClose();
+            return;
+        }
+
+        echo '<form method="post" class="techzapp-inline-form">';
+        View::formFields('techzapp-crm-settings', 'test_connection', 'techzapp_crm_test_connection');
+        submit_button(__('Check connection', 'techzapp-crm'), 'secondary', 'submit', false);
+        echo '<p class="description">'
+            . esc_html__('Asks SES for the account status. Confirms the credentials, the region and whether the account is still in the sandbox, without sending anything.', 'techzapp-crm')
+            . '</p>';
+        echo '</form>';
+
+        $identities = Settings::array('ses_verified_identities', []);
+
+        echo '<form method="post" class="techzapp-inline-form">';
+        View::formFields('techzapp-crm-settings', 'test_email', 'techzapp_crm_test_email');
+
+        printf(
+            '<label for="test_from"><strong>%s</strong></label> ',
+            esc_html__('From', 'techzapp-crm')
+        );
+        printf(
+            '<input type="email" id="test_from" name="test_from" class="regular-text" value="%s" list="techzapp-test-identities" required> ',
+            esc_attr((string) ($identities[0] ?? ''))
+        );
+
+        if ($identities !== []) {
+            echo '<datalist id="techzapp-test-identities">';
+            foreach ($identities as $identity) {
+                printf('<option value="%s">', esc_attr((string) $identity));
+            }
+            echo '</datalist>';
+        }
+
+        printf(
+            '<br><label for="test_to"><strong>%s</strong></label> ',
+            esc_html__('To', 'techzapp-crm')
+        );
+        printf(
+            '<input type="email" id="test_to" name="test_to" class="regular-text" placeholder="%s" required> ',
+            esc_attr__('you@example.com', 'techzapp-crm')
+        );
+
+        submit_button(__('Send test email', 'techzapp-crm'), 'primary', 'submit', false);
+
+        echo '<p class="description">'
+            . esc_html__('Sends one real message through SES and reports the message ID, or the exact error. Nothing is recorded against any campaign. While the account is in the sandbox, the recipient must also be a verified identity.', 'techzapp-crm')
+            . '</p>';
+        echo '</form>';
+
+        View::cardClose();
+    }
 
     private function killSwitchCard(bool $canEdit): void
     {
@@ -627,6 +715,8 @@ final class SettingsScreen extends Screen
             'save'        => $this->handleSave(),
             'kill_switch' => $this->handleKillSwitch(),
             'run_job'     => $this->handleRunJob(),
+            'test_connection' => $this->handleTestConnection(),
+            'test_email'      => $this->handleTestEmail(),
             default       => null,
         };
     }
@@ -753,6 +843,129 @@ final class SettingsScreen extends Screen
     }
 
     /** Runs one background job immediately, for setup and troubleshooting. */
+    /**
+     * Asks SES who we are, without sending.
+     *
+     * Reports the provider's own answer verbatim where it fails, because the
+     * distinction between a bad key, a wrong region and a blocked outbound
+     * connection lives entirely in that message.
+     */
+    private function handleTestConnection(): void
+    {
+        $this->authorise('techzapp_crm_test_connection', true);
+
+        $transport = Mailer::transport();
+        $status = $transport->accountStatus();
+
+        if ($status === null) {
+            throw CrmException::unprocessable(sprintf(
+                /* translators: %s: transport name */
+                __('Could not read the account status from %s. The exact provider error was written to the plugin log — check Tools or wp-content/debug.log. Common causes: wrong access key or secret, wrong region, or the host blocking outbound HTTPS.', 'techzapp-crm'),
+                $transport->name()
+            ));
+        }
+
+        $parts = [];
+        foreach ($status as $key => $value) {
+            $parts[] = sprintf(
+                '%s: %s',
+                ucwords(str_replace('_', ' ', (string) $key)),
+                is_bool($value) ? ($value ? 'yes' : 'no') : (string) $value
+            );
+        }
+
+        Audit::log('settings.ses_connection_tested', 'settings', '', ['transport' => $transport->name()]);
+
+        $this->redirect(
+            'techzapp-crm-settings',
+            [],
+            sprintf(
+                /* translators: %s: account details reported by the provider */
+                __('Connection works. %s', 'techzapp-crm'),
+                implode(' | ', $parts)
+            )
+        );
+    }
+
+    /**
+     * Sends one real message and reports precisely what happened.
+     *
+     * Not recorded against any campaign: this is a connectivity check, and a
+     * test send has no place in the figures describing a real audience.
+     */
+    private function handleTestEmail(): void
+    {
+        $this->authorise('techzapp_crm_test_email', true);
+
+        $from = $this->input('test_from');
+        $to = $this->input('test_to');
+
+        if ($from === '' || !EmailAddress::isValid($from)) {
+            throw CrmException::validation(['test_from' => __('Enter a valid From address.', 'techzapp-crm')]);
+        }
+        if ($to === '' || !EmailAddress::isValid($to)) {
+            throw CrmException::validation(['test_to' => __('Enter a valid recipient address.', 'techzapp-crm')]);
+        }
+
+        $transport = Mailer::transport();
+        $sentAt = gmdate('Y-m-d H:i:s');
+
+        $result = $transport->send(new \TechzappCrm\Services\Mail\Message(
+            $to,
+            $from,
+            (string) get_bloginfo('name'),
+            '',
+            __('Techzapp CRM test message', 'techzapp-crm'),
+            '<p>' . esc_html__('This is a test message from Techzapp CRM.', 'techzapp-crm') . '</p>'
+                . '<p>' . esc_html(sprintf(
+                    /* translators: 1: site URL, 2: UTC timestamp */
+                    __('Sent from %1$s at %2$s UTC.', 'techzapp-crm'),
+                    home_url('/'),
+                    $sentAt
+                )) . '</p>'
+                . '<p>' . esc_html__('If you are reading this, Amazon SES is configured correctly.', 'techzapp-crm') . '</p>',
+            sprintf(
+                /* translators: 1: site URL, 2: UTC timestamp */
+                __("This is a test message from Techzapp CRM.\n\nSent from %1\$s at %2\$s UTC.\n\nIf you are reading this, Amazon SES is configured correctly.", 'techzapp-crm'),
+                home_url('/'),
+                $sentAt
+            ),
+            [],
+            [],
+            Settings::string('ses_configuration_set', '')
+        ));
+
+        Audit::log('settings.test_email_sent', 'settings', '', [
+            'to'       => $to,
+            'from'     => $from,
+            'accepted' => $result->accepted,
+            'error'    => $result->errorCode,
+        ]);
+
+        if (!$result->accepted) {
+            // The provider's own words, not a paraphrase: "Email address is
+            // not verified" and "Could not connect" need entirely different
+            // fixes, and only the original text distinguishes them.
+            throw CrmException::unprocessable(sprintf(
+                /* translators: 1: error code, 2: error message */
+                __('SES refused the message. %1$s: %2$s', 'techzapp-crm'),
+                $result->errorCode !== '' ? $result->errorCode : __('Error', 'techzapp-crm'),
+                $result->errorMessage !== '' ? $result->errorMessage : __('no detail was returned', 'techzapp-crm')
+            ));
+        }
+
+        $this->redirect(
+            'techzapp-crm-settings',
+            [],
+            sprintf(
+                /* translators: 1: recipient, 2: provider message id */
+                __('Test message accepted by %1$s. Message ID: %2$s. If it does not arrive, check the spam folder and the SES suppression list — acceptance is not the same as delivery.', 'techzapp-crm'),
+                $to,
+                $result->messageId ?? '—'
+            )
+        );
+    }
+
     private function handleRunJob(): void
     {
         $this->authorise('techzapp_crm_run_job', true);

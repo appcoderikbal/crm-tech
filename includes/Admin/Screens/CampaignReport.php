@@ -186,6 +186,13 @@ final class CampaignReport extends Screen
 
         printf('<p data-role="status" class="description">%s</p>', esc_html__('Ready.', 'techzapp-crm'));
 
+        // Hidden until the first result arrives, so an idle panel is not
+        // dominated by an empty box.
+        printf(
+            '<div class="techzapp-log" data-role="log" role="log" aria-label="%s" hidden></div>',
+            esc_attr__('Sending log', 'techzapp-crm')
+        );
+
         if ($status !== 'paused') {
             printf(
                 '<button type="button" class="button button-primary" id="techzapp-send-start" data-confirm="%s">%s</button> ',

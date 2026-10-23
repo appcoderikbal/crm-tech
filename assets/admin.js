@@ -185,6 +185,68 @@
       panel.classList.toggle('is-running', isRunning);
     }
 
+    var log = panel.querySelector('[data-role="log"]');
+    var seen = Object.create(null);
+
+    /**
+     * Appends only recipients this tab has not already shown.
+     *
+     * The endpoint returns a rolling window rather than a cursor, so entries
+     * repeat between calls; keying by recipient id keeps the log honest
+     * instead of printing the same address on every poll.
+     */
+    function appendLog(entries) {
+      if (!log || !entries || !entries.length) {
+        return;
+      }
+
+      // Oldest first, so the newest ends up at the bottom.
+      entries.slice().reverse().forEach(function (entry) {
+        if (seen[entry.id]) {
+          return;
+        }
+        seen[entry.id] = true;
+
+        var line = document.createElement('div');
+        line.className = 'techzapp-log__line is-' + entry.status;
+
+        var status = document.createElement('span');
+        status.className = 'techzapp-log__status';
+        status.textContent = entry.status;
+
+        var email = document.createElement('span');
+        email.className = 'techzapp-log__email';
+        email.textContent = entry.email;
+
+        line.appendChild(status);
+        line.appendChild(email);
+
+        if (entry.detail) {
+          var detail = document.createElement('span');
+          detail.className = 'techzapp-log__detail';
+          detail.textContent = entry.detail;
+          line.appendChild(detail);
+        }
+
+        if (entry.attempts > 1) {
+          var attempts = document.createElement('span');
+          attempts.className = 'techzapp-log__detail';
+          attempts.textContent = '(attempt ' + entry.attempts + ')';
+          line.appendChild(attempts);
+        }
+
+        log.appendChild(line);
+      });
+
+      // Only follow the tail if the operator has not scrolled up to read.
+      var atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+      if (atBottom) {
+        log.scrollTop = log.scrollHeight;
+      }
+
+      log.hidden = false;
+    }
+
     function render(data) {
       var percent = Math.min(100, parseInt(data.percent, 10) || 0);
       bar.style.width = percent + '%';
@@ -192,6 +254,8 @@
       ['total', 'sent', 'pending', 'failed', 'skipped'].forEach(function (key) {
         setCount(panel, key, data[key]);
       });
+
+      appendLog(data.log);
     }
 
     function step() {

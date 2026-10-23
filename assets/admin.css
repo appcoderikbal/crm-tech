@@ -296,3 +296,51 @@ td.num, th.num { text-align: right; }
 @media (prefers-reduced-motion: reduce) {
   .techzapp-send.is-running .techzapp-progress__bar { animation: none; }
 }
+
+/* ----------------------------------------------------------- sending log */
+
+.techzapp-log {
+  max-height: 260px;
+  overflow-y: auto;
+  margin: 10px 0;
+  padding: 8px 10px;
+  border: 1px solid #dcdcde;
+  border-radius: 4px;
+  background: #1d2327;
+  font-family: Consolas, Monaco, monospace;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.techzapp-log__line {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  color: #c3c4c7;
+  border-bottom: 1px solid #2c3338;
+  padding: 1px 0;
+}
+.techzapp-log__line:last-child { border-bottom: 0; }
+
+.techzapp-log__status {
+  flex: 0 0 auto;
+  min-width: 78px;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: .04em;
+  color: #8c8f94;
+}
+.techzapp-log__line.is-accepted  .techzapp-log__status,
+.techzapp-log__line.is-delivered .techzapp-log__status { color: #68de7c; }
+.techzapp-log__line.is-failed     .techzapp-log__status,
+.techzapp-log__line.is-bounced    .techzapp-log__status,
+.techzapp-log__line.is-complained .techzapp-log__status { color: #f86368; }
+.techzapp-log__line.is-suppressed .techzapp-log__status,
+.techzapp-log__line.is-cancelled  .techzapp-log__status { color: #dba617; }
+
+.techzapp-log__email { flex: 0 1 auto; color: #f0f0f1; }
+.techzapp-log__detail {
+  flex: 1 1 auto;
+  color: #8c8f94;
+  overflow-wrap: anywhere;
+}
