@@ -8,6 +8,7 @@ use TechzappCrm\Admin\Menu;
 use TechzappCrm\Admin\View;
 use TechzappCrm\Core\Capabilities;
 use TechzappCrm\Core\Cron;
+use TechzappCrm\Services\CampaignService;
 use TechzappCrm\Services\ReportService;
 
 if (!defined('ABSPATH')) {
@@ -153,6 +154,8 @@ final class CampaignReport extends Screen
             );
         }
 
+        $this->renderAudienceNote($campaign, $metrics);
+
         printf(
             '<div id="techzapp-send-progress" class="techzapp-send" data-campaign="%d" data-autostart="%s">',
             $id,
@@ -167,6 +170,7 @@ final class CampaignReport extends Screen
             'pending' => __('Remaining', 'techzapp-crm'),
             'failed'  => __('Failed', 'techzapp-crm'),
             'skipped' => __('Skipped', 'techzapp-crm'),
+            'unconfirmed' => __('Unconfirmed', 'techzapp-crm'),
             'total'   => __('Total', 'techzapp-crm'),
         ] as $key => $label) {
             printf(
@@ -177,6 +181,7 @@ final class CampaignReport extends Screen
                     'pending' => $metrics['pending'],
                     'failed'  => $metrics['failed'],
                     'skipped' => $metrics['suppressed'] + $metrics['cancelled'],
+                    'unconfirmed' => 0,
                     default   => $metrics['total_recipients'],
                 })),
                 esc_html($label)
@@ -212,6 +217,65 @@ final class CampaignReport extends Screen
             . '</p>';
 
         View::cardClose();
+    }
+
+    /**
+     * Explains a recipient count that looks wrong.
+     *
+     * "I added someone to the list but they were not sent to" has several
+     * different causes — suppressed, unsubscribed, inactive, or simply on a
+     * different list, since a contact belongs to exactly one. Comparing what
+     * the list holds now against what this send built turns that into a
+     * statement rather than a mystery.
+     *
+     * @param array<string,mixed> $campaign
+     * @param array<string,int>   $metrics
+     */
+    private function renderAudienceNote(array $campaign, array $metrics): void
+    {
+        $listId = $campaign['list_id'] === null ? null : (int) $campaign['list_id'];
+        if ($listId === null) {
+            return;
+        }
+
+        $counts = CampaignService::recipientCounts($listId);
+        $built = $metrics['total_recipients'];
+
+        $excluded = $counts['suppressed'] + $counts['unsubscribed'] + $counts['invalid'];
+
+        echo '<p class="description">' . esc_html(sprintf(
+            /* translators: 1: recipients built, 2: eligible on the list now, 3: list total */
+            __('This send built %1$s recipient(s). The list currently holds %3$s contact(s), %2$s of them eligible.', 'techzapp-crm'),
+            View::number($built),
+            View::number($counts['eligible']),
+            View::number($counts['list_total'])
+        )) . '</p>';
+
+        if ($excluded > 0) {
+            echo '<p class="description tone-warn">' . esc_html(sprintf(
+                /* translators: 1: suppressed, 2: unsubscribed, 3: invalid or inactive */
+                __('Excluded from this list: %1$s suppressed, %2$s unsubscribed, %3$s invalid or inactive. Those are skipped on purpose.', 'techzapp-crm'),
+                View::number($counts['suppressed']),
+                View::number($counts['unsubscribed']),
+                View::number($counts['invalid'])
+            )) . '</p>';
+        }
+
+        if ($counts['eligible'] > $built) {
+            echo '<div class="notice notice-info inline"><p>' . esc_html(sprintf(
+                /* translators: %s: number of contacts */
+                __('%s eligible contact(s) on this list have no recipient row for this send — they were added after it was queued. Starting the send again picks them up; it will not send to anyone twice.', 'techzapp-crm'),
+                View::number($counts['eligible'] - $built)
+            )) . '</p></div>';
+        }
+
+        printf(
+            '<p class="description"><a href="%s">%s</a> &middot; <a href="%s">%s</a></p>',
+            esc_url(Menu::url('techzapp-crm-list', ['list_id' => $listId, 'assignment' => 'any'])),
+            esc_html__('See who is on this list', 'techzapp-crm'),
+            esc_url(Menu::url('techzapp-crm-suppressions')),
+            esc_html__('Check the suppression list', 'techzapp-crm')
+        );
     }
 
     /** @param array<string,int> $metrics */

@@ -251,7 +251,7 @@
       var percent = Math.min(100, parseInt(data.percent, 10) || 0);
       bar.style.width = percent + '%';
 
-      ['total', 'sent', 'pending', 'failed', 'skipped'].forEach(function (key) {
+      ['total', 'sent', 'pending', 'failed', 'skipped', 'unconfirmed'].forEach(function (key) {
         setCount(panel, key, data[key]);
       });
 

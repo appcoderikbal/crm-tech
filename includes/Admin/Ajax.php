@@ -112,7 +112,6 @@ final class Ajax
             }
 
             $result = CampaignSender::processCampaign($campaignId, microtime(true) + 12);
-            CampaignSender::completeIfFinished($campaignId);
 
             // Bounce and complaint feedback arrives while a send is in
             // progress. With no scheduled worker nothing else would ever drain
@@ -120,6 +119,19 @@ final class Ajax
             // the next campaign would send to it again. Deliberately small:
             // this is a send loop, not an event worker.
             self::drainFeedback();
+
+            // A send whose outcome could not be determined parks the recipient
+            // in needs_reconciliation and is never retried, because the message
+            // may already be on its way. Resolving those is also a scheduled
+            // job, so in manual mode the row would sit there forever and the
+            // campaign could never reach "completed" - it counts as
+            // outstanding work.
+            self::reconcile();
+
+            // Completion is checked last, so a row resolved by the two passes
+            // above counts immediately. Checking first would report the
+            // campaign as still running for one more round trip.
+            CampaignSender::completeIfFinished($campaignId);
 
             $campaign = CampaignService::find($campaignId);
             $status = (string) ($campaign['status'] ?? $status);
@@ -163,7 +175,8 @@ final class Ajax
                     THEN 1 ELSE 0 END) AS pending,
                 SUM(CASE WHEN status IN ('accepted','delivered','bounced','complained') THEN 1 ELSE 0 END) AS sent,
                 SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed,
-                SUM(CASE WHEN status IN ('suppressed','cancelled') THEN 1 ELSE 0 END) AS skipped
+                SUM(CASE WHEN status IN ('suppressed','cancelled') THEN 1 ELSE 0 END) AS skipped,
+                SUM(CASE WHEN status = 'needs_reconciliation' THEN 1 ELSE 0 END) AS unconfirmed
                FROM {campaign_recipients}
               WHERE campaign_id = :id",
             ['id' => $campaignId]
@@ -183,6 +196,7 @@ final class Ajax
             'sent'        => (int) ($row['sent'] ?? 0),
             'failed'      => (int) ($row['failed'] ?? 0),
             'skipped'     => (int) ($row['skipped'] ?? 0),
+            'unconfirmed' => (int) ($row['unconfirmed'] ?? 0),
             'percent'     => $total > 0 ? (int) floor((($total - $pending) / $total) * 100) : 0,
         ];
     }
@@ -291,6 +305,27 @@ final class Ajax
                 ),
             ]);
         });
+    }
+
+    /**
+     * Resolves sends whose outcome was never confirmed, best-effort.
+     *
+     * Only acts on rows older than the configured threshold: a send still in
+     * flight must be left alone. One that received a provider event is marked
+     * accepted; one that did not is marked failed rather than retried, since
+     * retrying risks delivering the same message twice.
+     */
+    private static function reconcile(): void
+    {
+        if (!Cron::isManual()) {
+            return;
+        }
+
+        try {
+            CampaignSender::reconcileStale();
+        } catch (Throwable $e) {
+            Logger::warning('ajax.reconcile_failed', ['error' => $e->getMessage()]);
+        }
     }
 
     /**
