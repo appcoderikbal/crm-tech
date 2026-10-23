@@ -6,6 +6,7 @@ namespace TechzappCrm\Admin\Screens;
 
 use TechzappCrm\Admin\Menu;
 use TechzappCrm\Admin\Notices;
+use TechzappCrm\Admin\View;
 use TechzappCrm\Core\Capabilities;
 
 if (!defined('ABSPATH')) {
@@ -56,7 +57,7 @@ abstract class Screen
     /** Verifies the nonce and the write capability, in that order. */
     protected function authorise(string $nonceAction, bool $settings = false): void
     {
-        Capabilities::checkNonce($nonceAction);
+        Capabilities::checkNonce($nonceAction, View::NONCE_FIELD);
 
         if ($settings) {
             Capabilities::requireSettings();

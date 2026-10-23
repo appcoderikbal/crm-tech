@@ -223,11 +223,23 @@ final class View
     }
 
     /** Hidden fields every plugin form needs: page, action and nonce. */
+    /**
+     * The request field carrying this plugin's nonces.
+     *
+     * Deliberately not _wpnonce. WP_List_Table::display() emits its own
+     * wp_nonce_field('bulk-…') inside whatever form surrounds it, which on a
+     * screen like Contacts lands after ours. Two inputs share the name, PHP
+     * keeps the last, and the plugin's own check then fails against the list
+     * table's value - "That link or form has expired" on a form that was
+     * perfectly valid. A distinct name cannot collide with core's.
+     */
+    public const NONCE_FIELD = 'techzapp_crm_nonce';
+
     public static function formFields(string $page, string $action, string $nonceAction): void
     {
         printf('<input type="hidden" name="page" value="%s">', esc_attr($page));
         printf('<input type="hidden" name="crm_action" value="%s">', esc_attr($action));
-        wp_nonce_field($nonceAction);
+        wp_nonce_field($nonceAction, self::NONCE_FIELD);
     }
 
     /** A URL carrying a nonce, for destructive row actions. */
@@ -235,7 +247,8 @@ final class View
     {
         return wp_nonce_url(
             Menu::url($page, ['crm_action' => $action] + $args),
-            $nonceAction
+            $nonceAction,
+            self::NONCE_FIELD
         );
     }
 }

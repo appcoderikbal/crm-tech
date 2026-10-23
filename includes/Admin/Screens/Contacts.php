@@ -210,7 +210,7 @@ final class Contacts extends Screen
      */
     private function handleExport(): void
     {
-        Capabilities::checkNonce('techzapp_crm_export');
+        Capabilities::checkNonce('techzapp_crm_export', \TechzappCrm\Admin\View::NONCE_FIELD);
         Capabilities::requireView();
 
         $filters = [

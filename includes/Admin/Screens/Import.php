@@ -536,7 +536,7 @@ final class Import extends Screen
 
     private function handleErrorsCsv(): void
     {
-        Capabilities::checkNonce('techzapp_crm_import_errors');
+        Capabilities::checkNonce('techzapp_crm_import_errors', \TechzappCrm\Admin\View::NONCE_FIELD);
         Capabilities::requireView();
 
         $jobId = $this->intInput('job');
