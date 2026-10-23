@@ -6,10 +6,12 @@ namespace TechzappCrm\Admin;
 
 use TechzappCrm\Core\Capabilities;
 use TechzappCrm\Core\CrmException;
+use TechzappCrm\Core\Cron;
 use TechzappCrm\Core\Database;
 use TechzappCrm\Core\Logger;
 use TechzappCrm\Services\CampaignSender;
 use TechzappCrm\Services\CampaignService;
+use TechzappCrm\Services\EventService;
 use TechzappCrm\Services\ImportService;
 use Throwable;
 
@@ -107,6 +109,13 @@ final class Ajax
             $result = CampaignSender::processCampaign($campaignId, microtime(true) + 12);
             CampaignSender::completeIfFinished($campaignId);
 
+            // Bounce and complaint feedback arrives while a send is in
+            // progress. With no scheduled worker nothing else would ever drain
+            // that queue, so a hard bounce would not suppress the address and
+            // the next campaign would send to it again. Deliberately small:
+            // this is a send loop, not an event worker.
+            self::drainFeedback();
+
             $campaign = CampaignService::find($campaignId);
             $status = (string) ($campaign['status'] ?? $status);
             $done = !in_array($status, ['queued', 'sending'], true);
@@ -170,6 +179,26 @@ final class Ajax
             'skipped'     => (int) ($row['skipped'] ?? 0),
             'percent'     => $total > 0 ? (int) floor((($total - $pending) / $total) * 100) : 0,
         ];
+    }
+
+    /**
+     * Processes a few queued provider notifications, best-effort.
+     *
+     * Only runs when there is no scheduled worker to do it. A failure here
+     * must never fail the send: the messages went out regardless, and the
+     * feedback queue is durable, so it is logged and left for the next pass.
+     */
+    private static function drainFeedback(): void
+    {
+        if (!Cron::isManual()) {
+            return;
+        }
+
+        try {
+            EventService::processPending(50, microtime(true) + 5);
+        } catch (Throwable $e) {
+            Logger::warning('ajax.feedback_drain_failed', ['error' => $e->getMessage()]);
+        }
     }
 
     /** Nonce first, then capability. Being in wp-admin is not authorisation. */

@@ -110,6 +110,21 @@ final class AlertService
         ) > 0;
     }
 
+    /**
+     * A SQL fragment hiding alerts that no longer apply.
+     *
+     * In manual mode the cron alerts are not just unhelpful, they are wrong:
+     * nothing is scheduled because that is what was asked for. Filtering at
+     * read time rather than relying on a resolver means a stale alert raised
+     * before the switch cannot keep a red badge on the menu - the resolver is
+     * itself a scheduled job, so in manual mode it would never run to clear
+     * them.
+     */
+    private static function hiddenCategories(): string
+    {
+        return Cron::isManual() ? " AND category <> 'cron'" : '';
+    }
+
     /** @return list<array<string,mixed>> */
     public static function active(int $limit = 50): array
     {
@@ -117,7 +132,7 @@ final class AlertService
             "SELECT id, alert_key, category, severity, status, title, message, metrics_json,
                     campaign_id, first_seen_at, last_seen_at
                FROM {alerts}
-              WHERE status IN ('active','acknowledged')
+              WHERE status IN ('active','acknowledged')" . self::hiddenCategories() . "
            ORDER BY FIELD(severity,'critical','warning','info'), last_seen_at DESC
               LIMIT " . max(1, min(200, $limit))
         );
@@ -135,12 +150,15 @@ final class AlertService
     {
         return (int) Database::scalar(
             "SELECT COUNT(*) FROM {alerts} WHERE status = 'active' AND severity = 'critical'"
+            . self::hiddenCategories()
         );
     }
 
     public static function unacknowledgedCount(): int
     {
-        return (int) Database::scalar("SELECT COUNT(*) FROM {alerts} WHERE status = 'active'");
+        return (int) Database::scalar(
+            "SELECT COUNT(*) FROM {alerts} WHERE status = 'active'" . self::hiddenCategories()
+        );
     }
 
     /**
