@@ -3,7 +3,7 @@
  * Plugin Name:       Techzapp CRM
  * Plugin URI:        https://github.com/appcoderikbal/crm-tech
  * Description:       Email marketing CRM for WordPress — contacts, lists, campaigns, scheduled sending through Amazon SES, delivery and engagement tracking, suppression management and deliverability monitoring.
- * Version:           1.1.0
+ * Version:           1.1.1
  * Requires at least: 6.0
  * Requires PHP:      8.2
  * Author:            Techzapp
@@ -31,7 +31,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-const VERSION = '1.1.0';
+const VERSION = '1.1.1';
 const DB_VERSION = '1.0.0';
 const MINIMUM_PHP = '8.2';
 

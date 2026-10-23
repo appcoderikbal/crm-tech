@@ -164,6 +164,28 @@ delivery rate is unknown rather than showing zero.
 
 ## Updating production from GitHub
 
+### If the repository is private
+
+A private repository serves nothing to an anonymous request, so the site needs
+a token. Add to `wp-config.php`, above the "stop editing" line:
+
+```php
+define( 'TECHZAPP_CRM_GITHUB_TOKEN', 'github_pat_...' );
+```
+
+Use a **fine-grained** personal access token limited to this one repository
+with **Contents: read-only**. A classic token with `repo` scope would give the
+web server write access to every repository on the account.
+
+Both halves of the update need it: the version check reads the releases API,
+and the download uses the API asset endpoint, because the public
+`browser_download_url` a release also advertises is a redirect to an
+unauthenticated link that a private repository answers with 404. Without the
+token the update would be offered and then fail to install.
+
+A public repository needs no token.
+
+
 The plugin checks this repository for new releases and offers them through the
 normal WordPress update screen — the same "Update now" button as any other
 plugin. No FTP, no re-uploading.

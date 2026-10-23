@@ -48,6 +48,10 @@ final class Updater
         add_filter('plugin_row_meta', [self::class, 'rowMeta'], 10, 2);
         add_action('admin_init', [self::class, 'handleManualCheck']);
 
+        // A private repository serves release assets only to an authenticated
+        // request, and WordPress downloads the package without credentials.
+        add_filter('http_request_args', [self::class, 'authenticateAssetDownload'], 10, 2);
+
         // GitHub names the extracted folder after the ZIP, which may not match
         // the installed directory; this keeps the plugin path stable.
         add_filter('upgrader_source_selection', [self::class, 'normaliseFolderName'], 10, 4);
@@ -164,10 +168,12 @@ final class Updater
             'User-Agent' => 'TechzappCRM/' . VERSION . '; ' . home_url('/'),
         ];
 
-        // Optional, for a private repository or to lift the 60/hour anonymous
-        // rate limit: define('TECHZAPP_CRM_GITHUB_TOKEN', 'ghp_…') in wp-config.
-        if (defined('TECHZAPP_CRM_GITHUB_TOKEN') && TECHZAPP_CRM_GITHUB_TOKEN !== '') {
-            $headers['Authorization'] = 'Bearer ' . TECHZAPP_CRM_GITHUB_TOKEN;
+        // Required for a private repository, and it also lifts the 60/hour
+        // anonymous rate limit:
+        // define('TECHZAPP_CRM_GITHUB_TOKEN', 'github_pat_…') in wp-config.php.
+        $token = self::token();
+        if ($token !== '') {
+            $headers['Authorization'] = 'Bearer ' . $token;
         }
 
         try {
@@ -229,17 +235,83 @@ final class Updater
         }
     }
 
-    /** @param array<int,array<string,mixed>> $assets */
+    /**
+     * The URL WordPress should download the build from.
+     *
+     * browser_download_url is a redirect to a signed, unauthenticated S3 link.
+     * That is correct for a public repository, but on a private one it answers
+     * 404 to the download WordPress performs — the update would be offered and
+     * then fail to install. With a token configured, the API asset endpoint is
+     * used instead, which honours the Authorization header attached by
+     * authenticateAssetDownload().
+     *
+     * @param array<int,array<string,mixed>> $assets
+     */
     private static function findAsset(array $assets): ?string
     {
         foreach ($assets as $asset) {
-            if (($asset['name'] ?? '') === self::ASSET_NAME) {
-                $url = (string) ($asset['browser_download_url'] ?? '');
-                return $url !== '' ? $url : null;
+            if (($asset['name'] ?? '') !== self::ASSET_NAME) {
+                continue;
             }
+
+            if (self::token() !== '') {
+                $apiUrl = (string) ($asset['url'] ?? '');
+                if ($apiUrl !== '') {
+                    return $apiUrl;
+                }
+            }
+
+            $url = (string) ($asset['browser_download_url'] ?? '');
+            return $url !== '' ? $url : null;
         }
 
         return null;
+    }
+
+    /** The configured GitHub token, or an empty string. */
+    private static function token(): string
+    {
+        return defined('TECHZAPP_CRM_GITHUB_TOKEN')
+            ? trim((string) TECHZAPP_CRM_GITHUB_TOKEN)
+            : '';
+    }
+
+    /**
+     * Attaches credentials to the asset download, and only to that.
+     *
+     * WordPress downloads the package with download_url(), which sends no
+     * authentication. The host is matched explicitly so the token is never
+     * sent anywhere other than GitHub's own asset endpoint.
+     *
+     * @param array<string,mixed> $args
+     * @return array<string,mixed>
+     */
+    public static function authenticateAssetDownload(array $args, string $url): array
+    {
+        $token = self::token();
+        if ($token === '') {
+            return $args;
+        }
+
+        $host = (string) (wp_parse_url($url, PHP_URL_HOST) ?: '');
+        $path = (string) (wp_parse_url($url, PHP_URL_PATH) ?: '');
+
+        if ($host !== 'api.github.com'
+            || !str_starts_with($path, '/repos/' . self::REPOSITORY . '/releases/assets/')
+        ) {
+            return $args;
+        }
+
+        $headers = isset($args['headers']) && is_array($args['headers']) ? $args['headers'] : [];
+
+        $headers['Authorization'] = 'Bearer ' . $token;
+        // Without this GitHub returns the asset's JSON metadata, not the file.
+        $headers['Accept'] = 'application/octet-stream';
+        $headers['User-Agent'] = 'TechzappCRM/' . VERSION . '; ' . home_url('/');
+
+        $args['headers'] = $headers;
+
+        return $args;
     }
 
     /** Reads "Tested up to: 6.8" from the release notes, if present. */
