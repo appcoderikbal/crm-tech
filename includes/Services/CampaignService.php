@@ -646,7 +646,17 @@ final class CampaignService
         if (!is_string($html) || trim($html) === '') {
             return null;
         }
-        return EmailHtml::sanitize($html);
+
+        // The editor's Text tab, and anything pasted into it, stores plain
+        // newlines. HTML collapses whitespace, so without this a message
+        // written as several paragraphs arrives as one run-on block - which
+        // is what WordPress itself avoids by running post content through
+        // wpautop on the way out.
+        //
+        // Only when there is no block-level markup already: a hand-built
+        // table layout, which is how most HTML email is structured, must not
+        // have stray paragraphs inserted into it.
+        return EmailHtml::sanitize(EmailHtml::ensureBlockStructure($html));
     }
 
     /** @param array<string,mixed> $row @return array<string,mixed> */

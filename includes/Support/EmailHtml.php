@@ -39,6 +39,31 @@ final class EmailHtml
 
     private static ?HTMLPurifier $purifier = null;
 
+    /**
+     * Gives a body paragraph structure if it has none.
+     *
+     * HTML collapses whitespace, so a message typed as several paragraphs in
+     * the editor's Text tab - or pasted in as plain text - arrives as one
+     * run-on block. WordPress solves the same problem for post content with
+     * wpautop; this applies it on the same terms.
+     *
+     * Idempotent by design: content that already contains block-level markup
+     * is returned untouched, so a hand-built table layout keeps its structure
+     * and nothing is wrapped twice however often this runs.
+     */
+    public static function ensureBlockStructure(string $html): string
+    {
+        if (trim($html) === '') {
+            return $html;
+        }
+
+        if (preg_match('/<(p|div|table|ul|ol|h[1-6]|blockquote|tr|td)/i', $html) === 1) {
+            return $html;
+        }
+
+        return function_exists('wpautop') ? wpautop($html) : $html;
+    }
+
     public static function sanitize(string $html, ?string $cacheDirectory = null): string
     {
         if (trim($html) === '') {

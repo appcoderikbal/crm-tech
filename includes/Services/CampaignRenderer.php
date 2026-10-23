@@ -31,7 +31,7 @@ final class CampaignRenderer
     public static function buildTemplate(array $campaign, bool $persistLinks = true): array
     {
         $campaignId = (int) $campaign['id'];
-        $html = (string) ($campaign['html_body'] ?? '');
+        $html = EmailHtml::ensureBlockStructure((string) ($campaign['html_body'] ?? ''));
         $text = trim((string) ($campaign['text_body'] ?? ''));
 
         // Plain text is derived before link rewriting so the text part carries
