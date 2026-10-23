@@ -88,15 +88,15 @@ final class EmailHtml
         $config->set('Core.Encoding', 'UTF-8');
         $config->set('HTML.Doctype', 'HTML 4.01 Transitional');
         $config->set('HTML.Allowed', implode(',', [
-            'p[style|align]', 'br', 'span[style]', 'div[style|align]',
+            'p[style|align|dir]', 'br', 'span[style]', 'div[style|align|dir]',
             'strong', 'b', 'em', 'i', 'u', 's', 'strike', 'sub', 'sup', 'small',
             'h1[style]', 'h2[style]', 'h3[style]', 'h4[style]', 'h5[style]', 'h6[style]',
             'ul[style]', 'ol[style]', 'li[style]', 'blockquote[style]', 'pre', 'code', 'hr',
             'a[href|title|target|rel|style]',
             'img[src|alt|width|height|style|border]',
-            'table[style|width|border|cellpadding|cellspacing|align]',
+            'table[style|width|border|cellpadding|cellspacing|align|bgcolor|dir]',
             'thead', 'tbody', 'tfoot',
-            'tr[style|align|valign]',
+            'tr[style|align|valign|bgcolor]',
             'td[style|align|valign|colspan|rowspan|width|height|bgcolor]',
             'th[style|align|valign|colspan|rowspan|width|height|bgcolor]',
         ]));
@@ -108,6 +108,12 @@ final class EmailHtml
             'border', 'border-top', 'border-bottom', 'border-left', 'border-right',
             'border-collapse', 'width', 'max-width', 'height',
             'vertical-align', 'white-space',
+            // Pasted email commonly carries these; all are already understood
+            // by HTMLPurifier, so allowing them costs nothing.
+            'text-transform', 'min-width', 'min-height', 'border-spacing',
+            'text-indent', 'font-variant', 'direction', 'border-style',
+            'border-width', 'border-color', 'background-image',
+            'background-repeat', 'background-position',
         ]));
         $config->set('URI.AllowedSchemes', ['http' => true, 'https' => true, 'mailto' => true]);
         $config->set('Attr.AllowedFrameTargets', ['_blank']);
@@ -127,6 +133,34 @@ final class EmailHtml
             $config->set('Cache.SerializerPermissions', 0750);
         } else {
             $config->set('Cache.DefinitionImpl', null);
+        }
+
+        // Properties HTMLPurifier has no definition for are registered here
+        // rather than listed in CSS.AllowedProperties, because that list is
+        // validated against the known set and an unrecognised entry emits a
+        // PHP warning - which, mid-request, would corrupt a JSON response.
+        //
+        // Adding them after the definition is built sidesteps that: the
+        // allow-list filter has already run, so these are simply present.
+        // display:block is how an image avoids a stray baseline gap, and
+        // border-radius is how every rounded button is drawn - both routine
+        // in anything pasted out of a mail client.
+        $css = $config->getCSSDefinition();
+
+        $css->info['display'] = new \HTMLPurifier_AttrDef_Enum(
+            ['block', 'inline', 'inline-block', 'none', 'table', 'table-cell', 'table-row'],
+            false
+        );
+        $css->info['border-radius'] = new \HTMLPurifier_AttrDef_CSS_Composite([
+            new \HTMLPurifier_AttrDef_CSS_Length('0'),
+            new \HTMLPurifier_AttrDef_CSS_Percentage(),
+        ]);
+        $css->info['opacity'] = new \HTMLPurifier_AttrDef_CSS_Number();
+
+        // The vendor-prefixed spellings Outlook still emits, so a pasted
+        // message is not left half-styled.
+        foreach (['-webkit-border-radius', '-moz-border-radius'] as $prefixed) {
+            $css->info[$prefixed] = $css->info['border-radius'];
         }
 
         self::$purifier = new HTMLPurifier($config);

@@ -43,10 +43,29 @@ final class Menu
         'techzapp-crm-audit'          => Screens\AuditLog::class,
     ];
 
+    /**
+     * Hidden screens, and the visible menu item each belongs under.
+     *
+     * A page registered with an empty parent has no place in the sidebar, so
+     * WordPress highlights nothing while it is open - the whole menu goes
+     * inactive and the user loses their sense of where they are. These
+     * mappings tell core which item to light up instead.
+     */
+    private const MENU_PARENTS = [
+        'techzapp-crm-contact' => 'techzapp-crm-contacts',
+        'techzapp-crm-import'  => 'techzapp-crm-contacts',
+        'techzapp-crm-list'    => 'techzapp-crm-lists',
+        'techzapp-crm-campaign' => 'techzapp-crm-campaigns',
+        'techzapp-crm-report'  => 'techzapp-crm-campaigns',
+        'techzapp-crm-audit'   => 'techzapp-crm-settings',
+    ];
+
     public static function register(): void
     {
         add_action('admin_menu', [self::class, 'addMenu']);
         add_action('admin_init', [self::class, 'handlePostActions']);
+        add_filter('submenu_file', [self::class, 'highlightSubmenu'], 10, 2);
+        add_filter('parent_file', [self::class, 'highlightParent']);
         Cleanup::register();
     }
 
@@ -122,6 +141,27 @@ final class Menu
                 [self::class, 'render']
             );
         }
+    }
+
+    /**
+     * Keeps the correct submenu item highlighted on a hidden screen.
+     *
+     * Falls back to the item itself when a screen has no mapping, so a page
+     * that is genuinely in the sidebar is left alone.
+     */
+    public static function highlightSubmenu(mixed $submenuFile, mixed $parentFile): mixed
+    {
+        $page = isset($_GET['page']) ? sanitize_key(wp_unslash((string) $_GET['page'])) : '';
+
+        return self::MENU_PARENTS[$page] ?? $submenuFile;
+    }
+
+    /** Keeps the top-level Techzapp CRM item open on a hidden screen. */
+    public static function highlightParent(mixed $parentFile): mixed
+    {
+        $page = isset($_GET['page']) ? sanitize_key(wp_unslash((string) $_GET['page'])) : '';
+
+        return isset(self::MENU_PARENTS[$page]) ? self::SLUG : $parentFile;
     }
 
     /** True when the class backing a page slug is present in this build. */
