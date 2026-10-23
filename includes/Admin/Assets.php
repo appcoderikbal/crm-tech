@@ -59,6 +59,9 @@ final class Assets
                 'sendStopped'     => __('Stopped. Nothing further will be sent until you start it again.', 'techzapp-crm'),
                 'sendFailed'      => __('Sending stopped unexpectedly. Reload to see where it got to.', 'techzapp-crm'),
                 'confirmStop'     => __('Stop sending? Messages already sent cannot be recalled.', 'techzapp-crm'),
+                'emptyResponse'   => __('The server returned an empty response (HTTP %d).', 'techzapp-crm'),
+                'emptyResponseHint' => __('That usually means PHP stopped mid-request: a fatal error or the memory limit. Check wp-content/debug.log or the host error log.', 'techzapp-crm'),
+                'badResponse'     => __('The server did not return valid JSON (HTTP %d):', 'techzapp-crm'),
             ],
         ]);
     }

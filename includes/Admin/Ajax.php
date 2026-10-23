@@ -30,6 +30,9 @@ if (!defined('ABSPATH')) {
  */
 final class Ajax
 {
+    /** Memory held back so the fatal handler can still run. @see catchFatal */
+    private static ?string $reserve = null;
+
     public static function register(): void
     {
         add_action('wp_ajax_techzapp_crm_import_step', [self::class, 'importStep']);
@@ -73,6 +76,8 @@ final class Ajax
         if ($campaignId <= 0) {
             wp_send_json_error(__('Unknown campaign.', 'techzapp-crm'), 400);
         }
+
+        self::catchFatal($campaignId);
 
         try {
             $campaign = CampaignService::find($campaignId);
@@ -179,6 +184,70 @@ final class Ajax
             'skipped'     => (int) ($row['skipped'] ?? 0),
             'percent'     => $total > 0 ? (int) floor((($total - $pending) / $total) * 100) : 0,
         ];
+    }
+
+    /**
+     * Turns a fatal error into a JSON answer.
+     *
+     * A memory-limit abort or a fatal inside a bundled library kills PHP
+     * outright: try/catch never sees it, nothing is printed, and the browser
+     * gets an empty body it can only describe as "Unexpected end of JSON
+     * input" — true, and useless. A shutdown handler still runs, so the real
+     * message gets through and ends up in front of the person who needs it.
+     */
+    private static function catchFatal(int $campaignId): void
+    {
+        // Reserved headroom. When PHP aborts on the memory limit there is by
+        // definition nothing left to allocate, so a shutdown handler that
+        // needs to build a string and encode JSON cannot run — which is
+        // exactly the case this exists to report. Releasing this buys it back.
+        self::$reserve = str_repeat('x', 256 * 1024);
+
+        register_shutdown_function(static function () use ($campaignId): void {
+            self::$reserve = null;
+
+            $error = error_get_last();
+
+            // Normal completion calls die() from wp_send_json; only a genuine
+            // fatal should produce a second response.
+            if ($error === null || !in_array($error['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+                return;
+            }
+
+            Logger::error('ajax.send_step_fatal', [
+                'campaign' => $campaignId,
+                'message'  => $error['message'],
+                'file'     => $error['file'],
+                'line'     => $error['line'],
+            ]);
+
+            if (headers_sent()) {
+                return;
+            }
+
+            $detail = $error['message'];
+            if (str_contains($detail, 'Allowed memory size')) {
+                $detail .= ' — ' . sprintf(
+                    /* translators: %s: the configured PHP memory limit */
+                    __('PHP ran out of memory (limit %s). Raise memory_limit, or ask the host to.', 'techzapp-crm'),
+                    (string) ini_get('memory_limit')
+                );
+            }
+
+            status_header(500);
+            header('Content-Type: application/json; charset=utf-8');
+
+            echo (string) wp_json_encode([
+                'success' => false,
+                'data'    => sprintf(
+                    /* translators: 1: error message, 2: file, 3: line */
+                    __('PHP stopped: %1$s (in %2$s line %3$d)', 'techzapp-crm'),
+                    $detail,
+                    basename((string) $error['file']),
+                    (int) $error['line']
+                ),
+            ]);
+        });
     }
 
     /**

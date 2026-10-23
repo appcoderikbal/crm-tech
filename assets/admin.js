@@ -42,11 +42,41 @@
       body: body,
       credentials: 'same-origin'
     })
-      .then(function (response) { return response.json(); })
-      .then(function (payload) {
+      // Read as text, not json(). A PHP fatal, a memory limit or a firewall
+      // returns an empty body or an HTML error page, and response.json()
+      // reports only "Unexpected end of JSON input" — which says nothing
+      // about what actually went wrong.
+      .then(function (response) {
+        return response.text().then(function (text) {
+          return { status: response.status, text: text };
+        });
+      })
+      .then(function (result) {
+        var text = (result.text || '').trim();
+
+        if (text === '') {
+          throw new Error(
+            techzappCrm.i18n.emptyResponse.replace('%d', result.status) +
+            (result.status === 200
+              ? ' ' + techzappCrm.i18n.emptyResponseHint
+              : '')
+          );
+        }
+
+        var payload;
+        try {
+          payload = JSON.parse(text);
+        } catch (e) {
+          // Show what actually came back, stripped of markup, so a PHP
+          // error or a WAF block is recognisable at a glance.
+          var snippet = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
+          throw new Error(techzappCrm.i18n.badResponse.replace('%d', result.status) + ' ' + snippet);
+        }
+
         if (!payload || !payload.success) {
           throw new Error((payload && payload.data) || 'failed');
         }
+
         return payload.data;
       });
   }
