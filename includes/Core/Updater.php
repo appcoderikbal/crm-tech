@@ -33,6 +33,15 @@ final class Updater
     /** The built asset produced by bin/build-release.sh. */
     public const ASSET_NAME = 'techzapp-crm.zip';
 
+    /**
+     * Why the last check found nothing.
+     *
+     * Without this every failure - unreachable host, rate limit, a release
+     * missing its ZIP - collapsed into the same "no release found" message,
+     * which sent people looking in entirely the wrong place.
+     */
+    private static string $lastError = '';
+
     private const CACHE_KEY = 'techzapp_crm_update_check';
     private const CACHE_TTL = 6 * HOUR_IN_SECONDS;
 
@@ -181,18 +190,44 @@ final class Updater
 
             if (is_wp_error($response)) {
                 Logger::warning('updater.request_failed', ['error' => $response->get_error_message()]);
+                self::$lastError = sprintf(
+                    /* translators: %s: network error reported by WordPress */
+                    __('This server could not reach api.github.com: %s', 'techzapp-crm'),
+                    $response->get_error_message()
+                );
                 return null;
             }
 
             $status = (int) wp_remote_retrieve_response_code($response);
 
             if ($status === 404) {
-                // No releases published yet. Normal on a fresh repository.
+                // Either nothing is published yet, or the repository is
+                // private to this server - GitHub answers 404 for both.
+                self::$lastError = __('GitHub returned 404. Either no release is published, or the repository is private and this site has no TECHZAPP_CRM_GITHUB_TOKEN.', 'techzapp-crm');
+                return null;
+            }
+
+            if ($status === 403 || $status === 429) {
+                $remaining = (string) wp_remote_retrieve_header($response, 'x-ratelimit-remaining');
+                Logger::warning('updater.rate_limited', ['status' => $status, 'remaining' => $remaining]);
+
+                self::$lastError = $remaining === '0'
+                    ? __('GitHub is rate-limiting this server. Unauthenticated checks are capped at 60 an hour per IP address, which on shared hosting is shared with every other site on it. Add TECHZAPP_CRM_GITHUB_TOKEN to wp-config.php to raise it to 5,000.', 'techzapp-crm')
+                    : sprintf(
+                        /* translators: %d: HTTP status code */
+                        __('GitHub refused the request (HTTP %d).', 'techzapp-crm'),
+                        $status
+                    );
                 return null;
             }
 
             if ($status !== 200) {
                 Logger::warning('updater.unexpected_status', ['status' => $status]);
+                self::$lastError = sprintf(
+                    /* translators: %d: HTTP status code */
+                    __('GitHub answered with HTTP %d.', 'techzapp-crm'),
+                    $status
+                );
                 return null;
             }
 
@@ -202,6 +237,7 @@ final class Updater
             }
 
             if (!empty($body['draft']) || !empty($body['prerelease'])) {
+                self::$lastError = __('The newest release is marked as a draft or pre-release, so it is not offered.', 'techzapp-crm');
                 return null;
             }
 
@@ -218,6 +254,12 @@ final class Updater
                     'version' => $version,
                     'expected' => self::ASSET_NAME,
                 ]);
+                self::$lastError = sprintf(
+                    /* translators: 1: release version, 2: expected file name */
+                    __('Release %1$s has no %2$s attached. The source archive is deliberately refused: it has no vendor directory and would break the site.', 'techzapp-crm'),
+                    $version,
+                    self::ASSET_NAME
+                );
                 return null;
             }
 
@@ -231,8 +273,15 @@ final class Updater
             ];
         } catch (Throwable $e) {
             Logger::exception('updater.failed', $e);
+            self::$lastError = $e->getMessage();
             return null;
         }
+    }
+
+    /** Why the last check came back empty, for the manual-check notice. */
+    public static function lastError(): string
+    {
+        return self::$lastError;
     }
 
     /**
@@ -418,8 +467,16 @@ final class Updater
         delete_site_transient('update_plugins');
         wp_update_plugins();
 
+        $reason = self::lastError();
+
         $message = $release === null
-            ? __('No published release with an installable ZIP was found. Builds are attached to GitHub releases by bin/build-release.sh.', 'techzapp-crm')
+            ? ($reason !== ''
+                ? sprintf(
+                    /* translators: %s: the specific reason the check failed */
+                    __('Could not check for updates. %s', 'techzapp-crm'),
+                    $reason
+                )
+                : __('No published release with an installable ZIP was found.', 'techzapp-crm'))
             : (version_compare($release['version'], VERSION, '>')
                 ? sprintf(
                     /* translators: %s: version number */
