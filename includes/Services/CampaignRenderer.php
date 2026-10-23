@@ -56,8 +56,13 @@ final class CampaignRenderer
         }
 
         $postalAddress = Settings::string('company_postal_address');
-        $html = EmailHtml::appendUnsubscribeFooter($html, $postalAddress);
-        $text = EmailHtml::appendUnsubscribeFooterText($text, $postalAddress);
+        $footer = [
+            'permission' => Settings::string('footer_permission_text'),
+            'label'      => Settings::string('footer_unsubscribe_label', 'Unsubscribe'),
+        ];
+
+        $html = EmailHtml::appendUnsubscribeFooter($html, $postalAddress, $footer);
+        $text = EmailHtml::appendUnsubscribeFooterText($text, $postalAddress, $footer);
 
         $preview = trim((string) ($campaign['preview_text'] ?? ''));
         if ($preview !== '') {

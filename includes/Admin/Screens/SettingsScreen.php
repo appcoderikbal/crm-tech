@@ -393,6 +393,16 @@ final class SettingsScreen extends Screen
             '#ffffff',
             __('Hex colour of the card itself.', 'techzapp-crm'));
 
+        $this->textRow('footer_unsubscribe_label', __('Unsubscribe link text', 'techzapp-crm'),
+            (string) ($settings['footer_unsubscribe_label'] ?? 'Unsubscribe'), $canEdit,
+            'Unsubscribe',
+            __('The wording of the link. Required in every campaign; it cannot be removed.', 'techzapp-crm'));
+
+        $this->textRow('footer_permission_text', __('Permission line', 'techzapp-crm'),
+            (string) ($settings['footer_permission_text'] ?? ''), $canEdit,
+            __('You are receiving this email because...', 'techzapp-crm'),
+            __('Shown above the unsubscribe link. Leave blank to show nothing but the link.', 'techzapp-crm'));
+
         $this->numberRow('email_corner_radius', __('Corner radius', 'techzapp-crm'),
             (int) ($settings['email_corner_radius'] ?? 8), $canEdit,
             __('Pixels. Outlook squares the corners off regardless; everything else honours it.', 'techzapp-crm'), 0);
@@ -784,6 +794,14 @@ final class SettingsScreen extends Screen
 
         $mode = $this->input('processing_mode', 'manual');
         $values['processing_mode'] = in_array($mode, ['manual', 'wp_cron'], true) ? $mode : 'manual';
+
+        $values['footer_permission_text'] = $this->input('footer_permission_text');
+
+        // The link itself is not optional: an unlabelled unsubscribe is an
+        // invisible one, which is both a CAN-SPAM problem and a fast route to
+        // being reported as spam instead.
+        $label = trim($this->input('footer_unsubscribe_label'));
+        $values['footer_unsubscribe_label'] = $label !== '' ? $label : 'Unsubscribe';
 
         $values['email_layout_enabled'] = $this->input('email_layout_enabled') !== '';
         $values['email_container_width'] = max(320, min(1200, $this->intInput('email_container_width', 600)));

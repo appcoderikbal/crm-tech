@@ -351,22 +351,44 @@ final class EmailHtml
      * Ensures a visible unsubscribe link exists. If the author already placed
      * one (via the {{!unsubscribe_url}} token), nothing is appended.
      */
-    public static function appendUnsubscribeFooter(string $html, string $postalAddress = ''): string
-    {
+    /**
+     * @param array{permission?:string,label?:string} $options
+     *        permission: the "why am I getting this" line. Empty omits it.
+     *        label:      the wording of the link itself.
+     */
+    public static function appendUnsubscribeFooter(
+        string $html,
+        string $postalAddress = '',
+        array $options = []
+    ): string {
         if (str_contains($html, self::UNSUBSCRIBE_TOKEN)) {
             return $html;
+        }
+
+        $permission = trim((string) ($options['permission'] ?? ''));
+        $label = trim((string) ($options['label'] ?? ''));
+        if ($label === '') {
+            $label = 'Unsubscribe';
         }
 
         $address = $postalAddress === ''
             ? ''
             : '<div style="margin-bottom:8px;">' . htmlspecialchars($postalAddress, ENT_QUOTES, 'UTF-8') . '</div>';
 
+        // Omitted entirely when blank, rather than left as an empty element
+        // that still contributes spacing above the link.
+        $reason = $permission === ''
+            ? ''
+            : '<div>' . htmlspecialchars($permission, ENT_QUOTES, 'UTF-8') . '</div>';
+
         $footer = '<div style="margin-top:32px;padding-top:16px;border-top:1px solid #e5e7eb;'
             . 'font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#6b7280;text-align:center;">'
             . $address
-            . '<div>You are receiving this email because you opted in or did business with us.</div>'
-            . '<div style="margin-top:6px;"><a href="' . self::UNSUBSCRIBE_TOKEN
-            . '" style="color:#6b7280;text-decoration:underline;">Unsubscribe from these emails</a></div>'
+            . $reason
+            . '<div' . ($reason === '' && $address === '' ? '' : ' style="margin-top:6px;"') . '>'
+            . '<a href="' . self::UNSUBSCRIBE_TOKEN
+            . '" style="color:#6b7280;text-decoration:underline;">'
+            . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . '</a></div>'
             . '</div>';
 
         if (stripos($html, '</body>') !== false) {
@@ -376,16 +398,30 @@ final class EmailHtml
     }
 
     /** Appends the unsubscribe URL token to a plain-text body. */
-    public static function appendUnsubscribeFooterText(string $text, string $postalAddress = ''): string
-    {
+    /** @param array{permission?:string,label?:string} $options */
+    public static function appendUnsubscribeFooterText(
+        string $text,
+        string $postalAddress = '',
+        array $options = []
+    ): string {
         if (str_contains($text, self::UNSUBSCRIBE_TOKEN)) {
             return $text;
         }
+
         $lines = [rtrim($text), '', str_repeat('-', 40)];
+
         if ($postalAddress !== '') {
             $lines[] = $postalAddress;
         }
-        $lines[] = 'Unsubscribe: ' . self::UNSUBSCRIBE_TOKEN;
+
+        $permission = trim((string) ($options['permission'] ?? ''));
+        if ($permission !== '') {
+            $lines[] = $permission;
+        }
+
+        $label = trim((string) ($options['label'] ?? ''));
+        $lines[] = ($label !== '' ? $label : 'Unsubscribe') . ': ' . self::UNSUBSCRIBE_TOKEN;
+
         return implode("\n", $lines) . "\n";
     }
 
