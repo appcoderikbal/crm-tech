@@ -258,3 +258,41 @@ a.techzapp-tile:hover { border-color: #2271b1; }
 .techzapp-bulk-assign { margin: 10px 0; }
 
 td.num, th.num { text-align: right; }
+
+/* ------------------------------------------------------- manual send panel */
+
+.techzapp-send__counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin: 12px 0 8px;
+}
+.techzapp-send__count { color: #646970; }
+.techzapp-send__count strong {
+  display: block;
+  font-size: 18px;
+  line-height: 1.2;
+  color: #1d2327;
+}
+
+/* The bar only animates while a send is actually in flight, so a stopped
+   loop is visibly different from a running one. */
+.techzapp-send.is-running .techzapp-progress__bar {
+  background-image: linear-gradient(
+    45deg,
+    rgba(255, 255, 255, .22) 25%, transparent 25%,
+    transparent 50%, rgba(255, 255, 255, .22) 50%,
+    rgba(255, 255, 255, .22) 75%, transparent 75%, transparent
+  );
+  background-size: 1rem 1rem;
+  animation: techzapp-stripes 1s linear infinite;
+}
+
+@keyframes techzapp-stripes {
+  from { background-position: 1rem 0; }
+  to   { background-position: 0 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .techzapp-send.is-running .techzapp-progress__bar { animation: none; }
+}

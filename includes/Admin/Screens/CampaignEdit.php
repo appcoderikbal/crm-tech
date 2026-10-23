@@ -9,6 +9,7 @@ use TechzappCrm\Admin\View;
 use TechzappCrm\Core\Audit;
 use TechzappCrm\Core\Capabilities;
 use TechzappCrm\Core\CrmException;
+use TechzappCrm\Core\Cron;
 use TechzappCrm\Core\Settings;
 use TechzappCrm\Services\CampaignRenderer;
 use TechzappCrm\Services\CampaignService;
@@ -496,6 +497,20 @@ final class CampaignEdit extends Screen
             return;
         }
 
+        // Scheduling needs something to wake up at the appointed time. With
+        // the background jobs turned off nothing would, so the option is
+        // withheld rather than offered as a trap that silently never fires.
+        if (Cron::isManual()) {
+            echo '<p><strong>' . esc_html__('Scheduling is unavailable', 'techzapp-crm') . '</strong></p>';
+            echo '<p class="description">'
+                . esc_html__('Background jobs are turned off, so nothing would be running at the scheduled time to start the send. Use "Send now" below, or switch Processing mode to "Scheduled" under Settings.', 'techzapp-crm')
+                . '</p>';
+
+            $this->renderSendNowForm($id);
+            View::cardClose();
+            return;
+        }
+
         echo '<form method="post" class="techzapp-inline-form">';
         View::formFields('techzapp-crm-campaign', 'schedule', 'techzapp_crm_campaign_schedule');
         printf('<input type="hidden" name="campaign" value="%d">', $id);
@@ -515,18 +530,30 @@ final class CampaignEdit extends Screen
         )) . '</p>';
         echo '</form>';
 
+        $this->renderSendNowForm($id);
+
+        View::cardClose();
+    }
+
+    /** The "Send now" button, shown in both scheduled and manual modes. */
+    private function renderSendNowForm(int $id): void
+    {
         echo '<form method="post" class="techzapp-inline-form">';
         View::formFields('techzapp-crm-campaign', 'send_now', 'techzapp_crm_campaign_send_now');
         printf('<input type="hidden" name="campaign" value="%d">', $id);
         printf(
             '<button type="submit" class="button button-primary techzapp-confirm" data-confirm="%s">%s</button>',
-            esc_attr__('Queue this campaign to send now? This cannot be undone once messages start going out.', 'techzapp-crm'),
+            esc_attr__('Queue this campaign and begin sending? This cannot be undone once messages start going out.', 'techzapp-crm'),
             esc_html__('Send now', 'techzapp-crm')
         );
-        echo '<p class="description">' . esc_html__('Queues every eligible recipient immediately. You can still pause or cancel while it runs.', 'techzapp-crm') . '</p>';
-        echo '</form>';
 
-        View::cardClose();
+        echo '<p class="description">' . esc_html(
+            Cron::isManual()
+                ? __('Queues every eligible recipient and starts sending straight away on the next screen. Keep that tab open until it finishes — you can stop it at any point.', 'techzapp-crm')
+                : __('Queues every eligible recipient immediately. You can still pause or cancel while it runs.', 'techzapp-crm')
+        ) . '</p>';
+
+        echo '</form>';
     }
 
     /**
@@ -732,8 +759,10 @@ final class CampaignEdit extends Screen
 
         $this->redirect(
             'techzapp-crm-report',
-            ['campaign' => $id],
-            __('Campaign queued. Sending begins on the next worker run — this page shows progress.', 'techzapp-crm')
+            ['campaign' => $id, 'sending' => 1],
+            Cron::isManual()
+                ? __('Campaign queued. Sending starts now — keep this tab open until it finishes.', 'techzapp-crm')
+                : __('Campaign queued. Sending begins on the next worker run; this page shows progress.', 'techzapp-crm')
         );
     }
 

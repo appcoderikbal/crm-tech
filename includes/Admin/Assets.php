@@ -53,6 +53,12 @@ final class Assets
                 'confirmSend'     => __('This will start sending to every eligible recipient. Continue?', 'techzapp-crm'),
                 'importFailed'    => __('The import stopped unexpectedly. Reload to see where it got to.', 'techzapp-crm'),
                 'importFinished'  => __('Import finished.', 'techzapp-crm'),
+                'sendStarting'    => __('Starting…', 'techzapp-crm'),
+                'sendRunning'     => __('Sending. Keep this tab open until it finishes.', 'techzapp-crm'),
+                'sendFinished'    => __('Finished.', 'techzapp-crm'),
+                'sendStopped'     => __('Stopped. Nothing further will be sent until you start it again.', 'techzapp-crm'),
+                'sendFailed'      => __('Sending stopped unexpectedly. Reload to see where it got to.', 'techzapp-crm'),
+                'confirmStop'     => __('Stop sending? Messages already sent cannot be recalled.', 'techzapp-crm'),
             ],
         ]);
     }

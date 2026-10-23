@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace TechzappCrm\Services;
 
 use TechzappCrm\Core\Audit;
+use TechzappCrm\Core\Cron;
 use TechzappCrm\Core\Database;
 use TechzappCrm\Core\Logger;
 use TechzappCrm\Core\Settings;
@@ -441,6 +442,19 @@ final class AlertService
     /** @return array{0:int,1:int} */
     private static function evaluateCronHealth(): array
     {
+        // In manual mode there is nothing scheduled by design. Alerting that
+        // a job has not run would be reporting the operator's own choice back
+        // to them as a critical fault.
+        if (Cron::isManual()) {
+            foreach (['process_campaigns', 'process_events'] as $job) {
+                self::resolve('cron_missing:' . $job, 'processing mode is manual');
+                self::resolve('cron_stale:' . $job, 'processing mode is manual');
+                self::resolve('cron_error:' . $job, 'processing mode is manual');
+            }
+
+            return [0, 0];
+        }
+
         $staleMinutes = max(5, Settings::int('cron_stale_minutes', 30));
         $raised = 0;
 
@@ -600,7 +614,12 @@ final class AlertService
         $staleMinutes = max(5, Settings::int('cron_stale_minutes', 30));
         $heartbeats = Database::all('SELECT job_name, last_run_at, last_status FROM {cron_heartbeats}');
 
-        if ($heartbeats === []) {
+        if (Cron::isManual()) {
+            $health['cron'] = [
+                'status' => 'green',
+                'detail' => 'Processing mode is manual: nothing is scheduled, and campaigns are sent from their own page.',
+            ];
+        } elseif ($heartbeats === []) {
             $health['cron'] = ['status' => 'unknown', 'detail' => 'No cron job has reported in yet.'];
         } else {
             $stale = [];

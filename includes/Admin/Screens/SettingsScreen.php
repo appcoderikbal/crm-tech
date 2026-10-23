@@ -117,6 +117,21 @@ final class SettingsScreen extends Screen
 
         echo '<table class="form-table" role="presentation"><tbody>';
 
+        $this->selectRow(
+            'processing_mode',
+            __('Processing mode', 'techzapp-crm'),
+            (string) ($settings['processing_mode'] ?? 'manual'),
+            [
+                'manual'  => __('Manual - nothing runs on a schedule', 'techzapp-crm'),
+                'wp_cron' => __('Scheduled - background jobs run automatically', 'techzapp-crm'),
+            ],
+            $canEdit
+        );
+
+        echo '<tr><th scope="row"></th><td><p class="description">'
+            . esc_html__('Manual is the lighter option on shared hosting: no recurring jobs, and you send each campaign yourself from its page with the tab open. Scheduled runs four background jobs for you - two of them every minute - which also lets you schedule a campaign for a future time and processes bounce and complaint feedback on its own.', 'techzapp-crm')
+            . '</p></td></tr>';
+
         $this->checkboxRow('sending_enabled', __('Sending enabled', 'techzapp-crm'), (bool) $settings['sending_enabled'], $canEdit,
             __('A softer control than the kill switch; both must be on for anything to send.', 'techzapp-crm'));
 
@@ -645,6 +660,9 @@ final class SettingsScreen extends Screen
         $transport = $this->input('mail_transport', 'ses');
         $values['mail_transport'] = in_array($transport, ['ses', 'log'], true) ? $transport : 'ses';
 
+        $mode = $this->input('processing_mode', 'manual');
+        $values['processing_mode'] = in_array($mode, ['manual', 'wp_cron'], true) ? $mode : 'manual';
+
         $timezone = $this->input('default_timezone');
         if ($timezone !== '' && !in_array($timezone, timezone_identifiers_list(), true)) {
             throw CrmException::validation(['default_timezone' => __('Unknown timezone.', 'techzapp-crm')]);
@@ -675,6 +693,11 @@ final class SettingsScreen extends Screen
         }
 
         Settings::update($values);
+
+        // Apply the mode straight away rather than waiting for the next
+        // request: switching to manual must actually clear the scheduled
+        // events, and switching back must re-create them.
+        Cron::schedule();
 
         $logged = $values;
         unset($logged['ses_secret_access_key']);

@@ -27,6 +27,10 @@ final class Settings
      * @var array<string,array{0:mixed,1:string}>
      */
     private const DEFAULTS = [
+        // 'manual'  - nothing runs on a schedule; sending is driven from the
+        //             browser by the operator. Lightest on a shared server.
+        // 'wp_cron' - background jobs run on WordPress's scheduler.
+        'processing_mode'             => ['manual', 'string'],
         'sending_enabled'             => [true, 'bool'],
         'kill_switch_engaged'         => [false, 'bool'],
         'kill_switch_reason'          => ['', 'string'],

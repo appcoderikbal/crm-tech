@@ -62,8 +62,26 @@ final class Cron
         return $schedules;
     }
 
+    /**
+     * True when the operator has asked for nothing to run on a schedule.
+     *
+     * The per-minute jobs are the expensive ones: with WP-Cron they ride on
+     * front-end page loads, which on shared hosting is a real cost for a site
+     * that only sends occasionally. In manual mode the work is driven from the
+     * browser instead, by the operator, while they watch it.
+     */
+    public static function isManual(): bool
+    {
+        return Settings::string('processing_mode', 'manual') === 'manual';
+    }
+
     public static function schedule(): void
     {
+        if (self::isManual()) {
+            self::unschedule();
+            return;
+        }
+
         $plan = [
             self::JOBS['process_campaigns'] => 'techzapp_crm_minute',
             self::JOBS['process_imports']   => 'techzapp_crm_minute',
@@ -80,6 +98,19 @@ final class Cron
 
     public static function ensureScheduled(): void
     {
+        if (self::isManual()) {
+            // Clear anything left behind by a previous mode, but only when
+            // something is actually scheduled — this runs on every request.
+            foreach (self::JOBS as $hook) {
+                if (wp_next_scheduled($hook) !== false) {
+                    self::unschedule();
+                    return;
+                }
+            }
+
+            return;
+        }
+
         foreach (self::JOBS as $hook) {
             if (wp_next_scheduled($hook) === false) {
                 self::schedule();

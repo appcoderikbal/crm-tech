@@ -6,6 +6,8 @@ namespace TechzappCrm\Admin\Screens;
 
 use TechzappCrm\Admin\Menu;
 use TechzappCrm\Admin\View;
+use TechzappCrm\Core\Capabilities;
+use TechzappCrm\Core\Cron;
 use TechzappCrm\Services\ReportService;
 
 if (!defined('ABSPATH')) {
@@ -54,6 +56,7 @@ final class CampaignReport extends Screen
         );
 
         $this->renderHeader($campaign, $metrics);
+        $this->renderSendControl($campaign, $metrics);
 
         foreach ($report['data_quality'] as $note) {
             View::notice((string) $note, 'warning');
@@ -104,6 +107,103 @@ final class CampaignReport extends Screen
         }
 
         echo '</tbody></table>';
+        View::cardClose();
+    }
+
+    /**
+     * The live send panel.
+     *
+     * Shown whenever the campaign still owns unsent recipients. In manual mode
+     * this loop is the only thing that will send them, so the panel says so
+     * plainly rather than leaving the operator waiting for a worker that is
+     * never going to run.
+     *
+     * @param array<string,mixed> $campaign
+     * @param array<string,int>   $metrics
+     */
+    private function renderSendControl(array $campaign, array $metrics): void
+    {
+        $status = (string) $campaign['status'];
+
+        if (!in_array($status, ['queued', 'sending', 'paused'], true)) {
+            return;
+        }
+
+        if (!Capabilities::canManage()) {
+            return;
+        }
+
+        $id = (int) $campaign['id'];
+        $manual = Cron::isManual();
+
+        // Arriving straight from "Send now" starts without a second click.
+        $autostart = $this->input('sending') === '1' && $status !== 'paused';
+
+        View::cardOpen(
+            __('Sending', 'techzapp-crm'),
+            $manual
+                ? __('Scheduled background jobs are turned off, so this tab does the sending. Keep it open until it finishes.', 'techzapp-crm')
+                : __('A background worker is also processing this campaign. You can drive it from here as well.', 'techzapp-crm')
+        );
+
+        if ($status === 'paused') {
+            View::notice(
+                __('This campaign is paused. Resume it from the Campaigns screen before sending can continue.', 'techzapp-crm'),
+                'warning'
+            );
+        }
+
+        printf(
+            '<div id="techzapp-send-progress" class="techzapp-send" data-campaign="%d" data-autostart="%s">',
+            $id,
+            $autostart ? '1' : '0'
+        );
+
+        echo '<div class="techzapp-progress"><div class="techzapp-progress__bar" style="width:0%"></div></div>';
+
+        echo '<p class="techzapp-send__counts">';
+        foreach ([
+            'sent'    => __('Sent', 'techzapp-crm'),
+            'pending' => __('Remaining', 'techzapp-crm'),
+            'failed'  => __('Failed', 'techzapp-crm'),
+            'skipped' => __('Skipped', 'techzapp-crm'),
+            'total'   => __('Total', 'techzapp-crm'),
+        ] as $key => $label) {
+            printf(
+                '<span class="techzapp-send__count"><strong data-count="%s">%s</strong> %s</span>',
+                esc_attr($key),
+                esc_html(View::number(match ($key) {
+                    'sent'    => $metrics['accepted'],
+                    'pending' => $metrics['pending'],
+                    'failed'  => $metrics['failed'],
+                    'skipped' => $metrics['suppressed'] + $metrics['cancelled'],
+                    default   => $metrics['total_recipients'],
+                })),
+                esc_html($label)
+            );
+        }
+        echo '</p>';
+
+        printf('<p data-role="status" class="description">%s</p>', esc_html__('Ready.', 'techzapp-crm'));
+
+        if ($status !== 'paused') {
+            printf(
+                '<button type="button" class="button button-primary" id="techzapp-send-start" data-confirm="%s">%s</button> ',
+                esc_attr__('Start sending to every remaining recipient. Messages already sent cannot be recalled.', 'techzapp-crm'),
+                esc_html__('Start sending', 'techzapp-crm')
+            );
+            printf(
+                '<button type="button" class="button" id="techzapp-send-stop" hidden>%s</button>',
+                esc_html__('Stop', 'techzapp-crm')
+            );
+        }
+
+        echo '</div>';
+
+        echo '<p class="description">'
+            . esc_html__('Stopping only halts this tab. The campaign keeps its place, so starting again continues from the next unsent recipient rather than sending anyone twice.', 'techzapp-crm')
+            . '</p>';
+
         View::cardClose();
     }
 

@@ -149,13 +149,38 @@ Verified inside WordPress 6.8 / PHP 8.3 / MySQL 8.4:
   rather than anywhere attacker-supplied
 - WP-CLI commands
 
+### Processing mode
+
+**Settings → Sending limits → Processing mode** decides whether anything runs
+on a schedule. It defaults to **Manual**.
+
+| | Manual (default) | Scheduled |
+|---|---|---|
+| Recurring jobs | none | four, two of them every minute |
+| Sending a campaign | from its page, with the tab open | a background worker |
+| Scheduling for a future time | unavailable | available |
+| Bounce/complaint feedback | processed while you send | processed on its own |
+| Cost to a shared server | negligible | ongoing |
+
+Manual suits a site that sends occasionally and is the lighter option on
+shared hosting: nothing runs between campaigns. Press **Send now**, and the
+campaign page sends in small batches while you watch, showing progress and a
+Stop button.
+
+Stopping halts that tab only. The campaign keeps its place, so starting again
+continues from the next unsent recipient — nobody is sent to twice, and
+closing the tab by accident loses nothing but time.
+
+Scheduling a campaign for a future time needs something running at that time,
+so that option is hidden in manual mode rather than offered as a trap.
+
 ### Sending your first campaign
 
 1. **Settings** — set the SES region, credentials and your verified identities
 2. **Lists** — create a list
 3. **Contacts** or **Import** — assign contacts to it
 4. **Campaigns → New campaign** — write it, then use the pre-flight check
-5. **Send a test** to yourself, then **Schedule** or **Send now**
+5. **Send a test** to yourself, then **Send now** (or **Schedule**, in scheduled mode)
 6. **Reports** — watch delivery, bounces and complaints against your thresholds
 
 Open and click rates are measured against messages SES accepted, and delivery
