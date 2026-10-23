@@ -56,10 +56,14 @@ final class Settings
         'default_timezone'            => ['America/New_York', 'string'],
         // Layout of the sent message. Without a container the body stretches
         // to the full width of the reading pane.
-        // Footer wording. The permission line may be blank; the unsubscribe
-        // link itself is not optional - it is what keeps the sender legal and
-        // out of the spam folder.
-        'footer_permission_text'      => ['You are receiving this email because you opted in or did business with us.', 'string'],
+        // Footer wording. Blank by default: the permission line is a
+        // convention rather than a requirement, and most senders want the
+        // footer to be the link and the postal address alone. Anyone who
+        // wants the sentence can type it in.
+        //
+        // The unsubscribe link itself is not optional - it is what keeps the
+        // sender legal and out of the spam folder.
+        'footer_permission_text'      => ['', 'string'],
         'footer_unsubscribe_label'    => ['Unsubscribe', 'string'],
         'email_layout_enabled'        => [true, 'bool'],
         'email_container_width'       => [600, 'int'],
