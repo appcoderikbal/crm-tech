@@ -157,6 +157,16 @@ final class CampaignRenderer
 
         $missing = [];
         $subject = Personalization::render($template['subject'], $values, $fallbacks, false, $missingSubject);
+
+        // URLs first, and with percent-encoding: a placeholder in a query
+        // string needs %20 where the same placeholder in a sentence needs
+        // &nbsp;-style HTML escaping. Doing this first leaves no placeholders
+        // in hrefs for the general pass to escape the wrong way.
+        $html = EmailHtml::rewriteUrls(
+            $html,
+            static fn (string $url): string => Personalization::renderUrl($url, $values, $fallbacks)
+        );
+
         $html = Personalization::render($html, $values, $fallbacks, true, $missingHtml);
         $text = Personalization::render($text, $values, $fallbacks, false, $missingText);
         $missing = array_values(array_unique(array_merge($missingSubject, $missingHtml, $missingText)));

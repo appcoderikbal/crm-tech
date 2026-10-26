@@ -45,6 +45,50 @@ final class Personalization
      * @param bool  $escapeHtml             true for HTML bodies, false for text/subject
      * @param list<string>|null $missing    receives variables that fell back
      */
+    /**
+     * Substitutes placeholders that sit inside a URL.
+     *
+     * Values are percent-encoded rather than HTML-escaped, because the two
+     * contexts need opposite things: inside a query string a space has to
+     * become %20 and an ampersand %26, or a name like "Anne & Co" silently
+     * truncates the parameter and starts a new one. HTML escaping would leave
+     * both intact and produce a broken link.
+     *
+     * @param array<string,mixed>  $values
+     * @param array<string,mixed>  $fallbacks
+     * @param list<string>|null    $missing
+     */
+    public static function renderUrl(
+        string $url,
+        array $values,
+        array $fallbacks = [],
+        ?array &$missing = null
+    ): string {
+        $missing = [];
+
+        $rendered = preg_replace_callback(
+            self::PATTERN,
+            static function (array $match) use ($values, $fallbacks, &$missing): string {
+                $name = strtolower($match[1]);
+                $raw = $values[$name] ?? null;
+                $value = is_scalar($raw) ? trim((string) $raw) : '';
+
+                if ($value === '') {
+                    $fallback = $fallbacks[$name] ?? null;
+                    $value = is_scalar($fallback) ? (string) $fallback : '';
+                    $missing[] = $name;
+                }
+
+                return rawurlencode($value);
+            },
+            $url
+        );
+
+        $missing = array_values(array_unique($missing));
+
+        return $rendered ?? $url;
+    }
+
     public static function render(
         string $template,
         array $values,

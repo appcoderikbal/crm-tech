@@ -201,6 +201,55 @@ final class EmailHtml
      * @param callable(string):int $registerLink receives the URL, returns a link id
      * @return array{html:string, links:array<int,string>}
      */
+    /**
+     * Rewrites every href and src through a callback.
+     *
+     * Used to substitute personalisation placeholders inside URLs, which has
+     * to happen separately from the body text: a value going into a query
+     * string needs percent-encoding, while the same value in a sentence needs
+     * HTML escaping. Running one pass over the whole document would apply the
+     * wrong one to half of it.
+     *
+     * Tracked links are already tokens by this point, so they are skipped -
+     * their real destination is personalised at redirect time instead, where
+     * the recipient is known.
+     *
+     * @param callable(string):string $rewrite
+     */
+    public static function rewriteUrls(string $html, callable $rewrite): string
+    {
+        if (trim($html) === '' || !str_contains($html, '{{')) {
+            return $html;
+        }
+
+        $document = self::loadDocument($html);
+        if ($document === null) {
+            return $html;
+        }
+
+        $xpath = new DOMXPath($document);
+        /** @var iterable<DOMElement> $nodes */
+        $nodes = $xpath->query('//a[@href] | //img[@src]') ?: [];
+
+        foreach ($nodes as $node) {
+            $attribute = $node->hasAttribute('href') ? 'href' : 'src';
+            $value = $node->getAttribute($attribute);
+
+            if (!str_contains($value, '{{')) {
+                continue;
+            }
+
+            // A tracking token carries no personalisation and must stay exact.
+            if (str_starts_with($value, self::LINK_TOKEN_PREFIX)) {
+                continue;
+            }
+
+            $node->setAttribute($attribute, $rewrite($value));
+        }
+
+        return self::saveDocument($document);
+    }
+
     public static function rewriteLinksForTracking(string $html, callable $registerLink): array
     {
         if (trim($html) === '') {
@@ -244,11 +293,26 @@ final class EmailHtml
         if (str_starts_with($url, self::LINK_TOKEN_PREFIX)) {
             return false; // already rewritten
         }
-        if (str_contains($url, '{{')) {
-            return false; // personalized or already a tracking placeholder
+        // The plugin's own tokens - the open pixel and the unsubscribe URL -
+        // are not destinations and must never be registered as links.
+        if (str_contains($url, '{{!')) {
+            return false;
         }
+
+        // A contact placeholder is fine: the link is tracked as a template and
+        // the real destination is resolved per recipient at redirect time.
+        // parse_url copes with braces in the query, which is where they
+        // belong; a placeholder in the host is rejected below.
         $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
-        return $scheme === 'http' || $scheme === 'https';
+        if ($scheme !== 'http' && $scheme !== 'https') {
+            return false;
+        }
+
+        $host = (string) parse_url($url, PHP_URL_HOST);
+
+        // A placeholder in the host would let imported contact data decide
+        // where the link goes. Only the part after the host is personalised.
+        return $host !== '' && !str_contains($host, '{');
     }
 
     /** Validates a redirect destination before the tracking endpoint uses it. */

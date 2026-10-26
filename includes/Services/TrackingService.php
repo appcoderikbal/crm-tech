@@ -8,6 +8,7 @@ use TechzappCrm\Core\Config;
 use TechzappCrm\Core\Database;
 use TechzappCrm\Core\Settings;
 use TechzappCrm\Support\EmailHtml;
+use TechzappCrm\Support\Personalization;
 use TechzappCrm\Support\Tokens;
 
 if (!defined('ABSPATH')) {
@@ -147,7 +148,17 @@ final class TrackingService
             ['id' => $linkId, 'campaign' => (int) $recipient['campaign_id']]
         );
 
-        if (!is_string($url) || !EmailHtml::isSafeRedirectTarget($url)) {
+        if (!is_string($url)) {
+            return null;
+        }
+
+        // The stored URL is a template shared by every recipient, so a
+        // placeholder in it can only be resolved here, where we know who
+        // clicked. Validation runs on the finished URL, not the template: a
+        // template is never what the browser is sent.
+        $url = self::personalizeDestination($url, $recipient);
+
+        if (!EmailHtml::isSafeRedirectTarget($url)) {
             return null;
         }
 
@@ -183,6 +194,53 @@ final class TrackingService
         }
 
         return $url;
+    }
+
+    /**
+     * Fills placeholders in a click destination from the recipient's contact.
+     *
+     * Values are percent-encoded by renderUrl, so a name containing a space
+     * or an ampersand cannot break out of its query parameter. The contact may
+     * have been deleted since the send, in which case the fallbacks apply and
+     * the link still works.
+     *
+     * @param array<string,mixed> $recipient
+     */
+    private static function personalizeDestination(string $url, array $recipient): string
+    {
+        if (!str_contains($url, '{{')) {
+            return $url;
+        }
+
+        $contact = null;
+        if (($recipient['contact_id'] ?? null) !== null) {
+            $contact = Database::first(
+                'SELECT email, first_name, last_name, company_name, website, country
+                   FROM {contacts} WHERE id = :id',
+                ['id' => (int) $recipient['contact_id']]
+            );
+        }
+
+        // Falling back to the snapshot keeps the address correct even when the
+        // contact row is gone.
+        $contact ??= ['email' => (string) ($recipient['recipient_email_snapshot'] ?? '')];
+
+        $resolved = Personalization::renderUrl(
+            $url,
+            Personalization::valuesForContact($contact),
+            Settings::json('personalization_fallbacks', [])
+        );
+
+        // Contact data is operator-supplied and arrives by CSV, so it is not
+        // trusted to decide where a link points. If substitution has moved the
+        // destination to a different host, the template wins and the
+        // personalisation is dropped.
+        if (strtolower((string) parse_url($resolved, PHP_URL_HOST))
+            !== strtolower((string) parse_url($url, PHP_URL_HOST))) {
+            return $url;
+        }
+
+        return $resolved;
     }
 
     /**
