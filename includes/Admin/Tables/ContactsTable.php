@@ -97,6 +97,7 @@ final class ContactsTable extends WP_List_Table
             'country'      => $this->request('country'),
             'suppressed'   => $this->request('suppressed'),
             'list_id'      => $this->request('list_id'),
+            'unsubscribed' => $this->request('unsubscribed'),
             'sort'         => $this->request('orderby', 'created_at'),
             'direction'    => $this->request('order', 'desc') === 'asc' ? 'asc' : 'desc',
             'page'         => $paged,
@@ -217,6 +218,7 @@ final class ContactsTable extends WP_List_Table
     protected function get_views(): array
     {
         $current = $this->request('assignment', 'unassigned');
+        $unsubscribed = $this->request('unsubscribed') === 'yes';
 
         $views = [
             'unassigned' => [__('Unassigned', 'techzapp-crm'), $this->counts['unassigned'] ?? 0],
@@ -229,11 +231,26 @@ final class ContactsTable extends WP_List_Table
             $links[$key] = sprintf(
                 '<a href="%s"%s>%s <span class="count">(%s)</span></a>',
                 esc_url(Menu::url('techzapp-crm-contacts', ['assignment' => $key])),
-                $key === $current ? ' class="current"' : '',
+                ($key === $current && !$unsubscribed) ? ' class="current"' : '',
                 esc_html($label),
                 esc_html(View::number($count))
             );
         }
+
+        // Opting out removes the contact from every list, so they would
+        // otherwise only be findable under "Unassigned" among everyone else
+        // who simply has not been assigned yet. Who opted out is a question
+        // worth one click.
+        $links['unsubscribed'] = sprintf(
+            '<a href="%s"%s>%s <span class="count">(%s)</span></a>',
+            esc_url(Menu::url('techzapp-crm-contacts', [
+                'assignment'   => 'any',
+                'unsubscribed' => 'yes',
+            ])),
+            $unsubscribed ? ' class="current"' : '',
+            esc_html__('Unsubscribed', 'techzapp-crm'),
+            esc_html(View::number($this->counts['unsubscribed'] ?? 0))
+        );
 
         return $links;
     }

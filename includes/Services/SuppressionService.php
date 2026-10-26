@@ -92,6 +92,32 @@ final class SuppressionService
                   WHERE normalized_email = :email',
                 ['email' => $normalized]
             );
+
+            // Someone who has opted out should not be sitting on a list. The
+            // suppression alone would stop the send, but leaving them there
+            // misrepresents the list size and invites a well-meaning export
+            // that puts them back in front of a mail merge somewhere else.
+            //
+            // The contact row itself is kept, carrying unsubscribed_at, so
+            // who opted out and when stays answerable - and so a later import
+            // of the same address cannot quietly resurrect them.
+            $removed = Database::execute(
+                'DELETE lc FROM {list_contacts} lc
+                   JOIN {contacts} c ON c.id = lc.contact_id
+                  WHERE c.normalized_email = :email',
+                ['email' => $normalized]
+            );
+
+            if ($removed > 0) {
+                self::recordEvent(
+                    $normalized,
+                    'removed_from_lists',
+                    $reason,
+                    $source,
+                    $actorUserId,
+                    sprintf('Removed from %d list(s) on opt-out.', $removed)
+                );
+            }
         }
 
         return true;

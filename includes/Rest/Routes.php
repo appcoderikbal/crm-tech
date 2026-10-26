@@ -463,6 +463,28 @@ final class Routes
     // ---------------------------------------------------------------- helpers
 
     /** Renders a small self-contained page: no theme, no assets, no tracking. */
+    /**
+     * Markup permitted on the public pages.
+     *
+     * Deliberately tiny, and a superset of wp_kses_post only in the one place
+     * it has to be: the confirmation form.
+     *
+     * @return array<string,array<string,bool>>
+     */
+    private static function allowedPageHtml(): array
+    {
+        return [
+            'h1'     => [],
+            'p'      => ['class' => true],
+            'strong' => [],
+            'em'     => [],
+            'br'     => [],
+            'form'   => ['method' => true, 'action' => true],
+            'button' => ['type' => true, 'class' => true],
+            'a'      => ['href' => true, 'rel' => true],
+        ];
+    }
+
     private static function renderPage(string $title, string $body, int $status = 200): never
     {
         if (!headers_sent()) {
@@ -488,7 +510,11 @@ final class Routes
             . '<meta name="robots" content="noindex, nofollow">'
             . '<title>' . esc_html($title) . '</title>'
             . '<style>' . $css . '</style></head><body><div class="card">'
-            . wp_kses_post($body)
+            // wp_kses_post would strip the form: it is not in WordPress's
+            // post allow-list, while <button> is. That left a button with
+            // nothing to submit to, so the page rendered correctly and the
+            // unsubscribe simply did nothing when clicked.
+            . wp_kses($body, self::allowedPageHtml())
             . '</div></body></html>';
 
         exit;

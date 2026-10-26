@@ -57,6 +57,12 @@ final class Contacts extends Screen
             '<input type="hidden" name="assignment" value="%s">',
             esc_attr($this->input('assignment', 'unassigned'))
         );
+        if ($this->input('unsubscribed') !== '') {
+            printf(
+                '<input type="hidden" name="unsubscribed" value="%s">',
+                esc_attr($this->input('unsubscribed'))
+            );
+        }
         $table->search_box(__('Search contacts', 'techzapp-crm'), 'contact');
         echo '</form>';
 
@@ -65,6 +71,9 @@ final class Contacts extends Screen
         echo '<form method="post">';
         View::formFields('techzapp-crm-contacts', 'bulk', 'techzapp_crm_contacts_bulk');
         printf('<input type="hidden" name="assignment" value="%s">', esc_attr($this->input('assignment', 'unassigned')));
+        if ($this->input('unsubscribed') !== '') {
+            printf('<input type="hidden" name="unsubscribed" value="%s">', esc_attr($this->input('unsubscribed')));
+        }
 
         if (Capabilities::canManage()) {
             $this->assignControls();
