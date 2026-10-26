@@ -40,16 +40,23 @@ final class EmailHtml
     private static ?HTMLPurifier $purifier = null;
 
     /**
-     * Gives a body paragraph structure if it has none.
+     * Turns the line breaks someone typed into the ones HTML needs.
      *
-     * HTML collapses whitespace, so a message typed as several paragraphs in
-     * the editor's Text tab - or pasted in as plain text - arrives as one
-     * run-on block. WordPress solves the same problem for post content with
-     * wpautop; this applies it on the same terms.
+     * HTML collapses whitespace, so a newline means nothing on its own: a
+     * blank line has to become a new paragraph and a single newline a <br>.
+     * WordPress solves exactly this for post content with wpautop, and this
+     * applies it on the same terms.
      *
-     * Idempotent by design: content that already contains block-level markup
-     * is returned untouched, so a hand-built table layout keeps its structure
-     * and nothing is wrapped twice however often this runs.
+     * An earlier version skipped the whole thing whenever any block-level tag
+     * was present, on the theory that structured content needed protecting.
+     * That was wrong in the common case: a newline inside a <p> - which is
+     * what the editor stores for Shift+Enter, and what pasted text produces -
+     * was then left to collapse, so "Best," and the name after it arrived on
+     * one line. wpautop inserts nothing into a table and does not double-wrap
+     * existing paragraphs, so there was nothing to protect against.
+     *
+     * Idempotent: running it twice gives the same result, which matters
+     * because it runs on save and again on render.
      */
     public static function ensureBlockStructure(string $html): string
     {
@@ -57,7 +64,9 @@ final class EmailHtml
             return $html;
         }
 
-        if (preg_match('/<(?:p|div|table|ul|ol|h[1-6]|blockquote|tr|td)[\s>\/]/i', $html) === 1) {
+        // A complete document brings its own structure, and wpautop would
+        // wrap parts of the shell itself.
+        if (preg_match('/<(?:!doctype|html|body)[\s>]/i', $html) === 1) {
             return $html;
         }
 
