@@ -337,6 +337,52 @@
     }
   }
 
+  /**
+   * Inserts a personalisation placeholder at the cursor.
+   *
+   * Has to cope with both halves of wp_editor: TinyMCE owns an iframe in the
+   * Visual tab, while the Text tab is an ordinary textarea. Writing to the
+   * wrong one silently does nothing, so the active mode decides.
+   */
+  function initPlaceholders() {
+    var bar = document.querySelector('.techzapp-placeholders');
+    if (!bar) {
+      return;
+    }
+
+    bar.addEventListener('click', function (event) {
+      var button = event.target.closest('.techzapp-placeholder');
+      if (!button) {
+        return;
+      }
+
+      event.preventDefault();
+      var token = button.dataset.token || '';
+
+      var editor = window.tinymce && window.tinymce.get('html_body');
+      if (editor && !editor.isHidden()) {
+        editor.execCommand('mceInsertContent', false, token);
+        editor.focus();
+        return;
+      }
+
+      var textarea = document.getElementById('html_body');
+      if (!textarea) {
+        return;
+      }
+
+      // Replace the selection rather than appending, so the token lands where
+      // the caret actually is.
+      var start = textarea.selectionStart || 0;
+      var end = textarea.selectionEnd || 0;
+
+      textarea.value = textarea.value.slice(0, start) + token + textarea.value.slice(end);
+      textarea.focus();
+      textarea.selectionStart = textarea.selectionEnd = start + token.length;
+    });
+  }
+
   initImport();
   initSend();
+  initPlaceholders();
 })();

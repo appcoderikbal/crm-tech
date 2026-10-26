@@ -17,6 +17,7 @@ use TechzappCrm\Services\ListService;
 use TechzappCrm\Services\Mail\Mailer;
 use TechzappCrm\Services\Mail\Message;
 use TechzappCrm\Support\EmailAddress;
+use TechzappCrm\Support\Personalization;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -235,6 +236,8 @@ final class CampaignEdit extends Screen
 
         echo '<p><strong>' . esc_html__('HTML body', 'techzapp-crm') . '</strong></p>';
 
+        $this->renderPlaceholderBar();
+
         wp_editor(
             (string) ($campaign['html_body'] ?? ''),
             'html_body',
@@ -249,7 +252,13 @@ final class CampaignEdit extends Screen
             ]
         );
 
-        echo '<p class="description">' . esc_html__('Personalisation: use {{first_name}}, {{last_name}}, {{email}} or {{company}}. A missing value falls back to the text set in Settings. JavaScript and forms are stripped — most inboxes block them anyway.', 'techzapp-crm') . '</p>';
+        echo '<p class="description">'
+            . esc_html__('A missing value falls back to the text set in Settings. JavaScript and forms are stripped: most inboxes block them anyway.', 'techzapp-crm')
+            . '</p>';
+
+        echo '<p class="description">'
+            . esc_html__('In the Visual tab, Enter starts a new paragraph and Shift+Enter makes a single line break. You never need to type HTML.', 'techzapp-crm')
+            . '</p>';
 
         echo '<p><label for="text_body"><strong>' . esc_html__('Plain-text body', 'techzapp-crm') . '</strong></label></p>';
         printf(
@@ -580,6 +589,44 @@ final class CampaignEdit extends Screen
         }
 
         return $moment->setTimezone($zone)->format('Y-m-d\TH:i');
+    }
+
+    /**
+     * Buttons that insert a personalisation placeholder at the cursor.
+     *
+     * Typing {{first_name}} by hand means remembering the exact spelling, and
+     * a near miss fails silently - the placeholder is simply left in the sent
+     * message. These carry the canonical names, and the same buttons work in
+     * a URL field, which is where the spelling matters most.
+     */
+    private function renderPlaceholderBar(): void
+    {
+        $labels = [
+            'first_name'   => __('First name', 'techzapp-crm'),
+            'last_name'    => __('Last name', 'techzapp-crm'),
+            'full_name'    => __('Full name', 'techzapp-crm'),
+            'email'        => __('Email', 'techzapp-crm'),
+            'company_name' => __('Company', 'techzapp-crm'),
+            'website'      => __('Website', 'techzapp-crm'),
+            'country'      => __('Country', 'techzapp-crm'),
+        ];
+
+        echo '<div class="techzapp-placeholders">';
+        printf(
+            '<span class="techzapp-placeholders__label">%s</span>',
+            esc_html__('Insert:', 'techzapp-crm')
+        );
+
+        foreach (Personalization::STANDARD_VARIABLES as $variable) {
+            printf(
+                '<button type="button" class="button button-small techzapp-placeholder" data-token="%s" title="%s">%s</button>',
+                esc_attr('{{' . $variable . '}}'),
+                esc_attr('{{' . $variable . '}}'),
+                esc_html($labels[$variable] ?? $variable)
+            );
+        }
+
+        echo '</div>';
     }
 
     /** @param array<string,mixed> $options */

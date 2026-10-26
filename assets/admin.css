@@ -344,3 +344,19 @@ td.num, th.num { text-align: right; }
   color: #8c8f94;
   overflow-wrap: anywhere;
 }
+
+/* ------------------------------------------------- personalisation inserter */
+
+.techzapp-placeholders {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin: 0 0 8px;
+}
+.techzapp-placeholders__label {
+  font-weight: 600;
+  color: #50575e;
+  margin-right: 2px;
+}
+.techzapp-placeholders .button { margin: 0; }
